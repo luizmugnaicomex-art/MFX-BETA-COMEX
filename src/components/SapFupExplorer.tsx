@@ -4,6 +4,9 @@ import type { FupItemRow } from '../types/comex';
 import { downloadSampleFupTemplate } from '../utils/exportReports';
 import { formatCurrency, formatNumber } from '../utils/sapParser';
 import { StatusBadge, getDeliveryStatusTone } from './StatusBadge';
+import { useI18n } from '../i18n/I18nContext';
+import { fmt } from '../i18n/translations';
+import { translateDeliveryStatus } from '../i18n/helpers';
 
 interface SapFupExplorerProps {
   items: FupItemRow[];
@@ -18,6 +21,7 @@ export const SapFupExplorer: React.FC<SapFupExplorerProps> = ({
   onUploadFile,
   onResetToSeed,
 }) => {
+  const { lang, tr } = useI18n();
   const [isDragging, setIsDragging] = useState(false);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(items[0]?.id || null);
 
@@ -49,15 +53,14 @@ export const SapFupExplorer: React.FC<SapFupExplorerProps> = ({
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="space-y-1">
             <div className="text-xs font-mono text-cyan-600 dark:text-cyan-400">
-              ACTIVE DATASET: {dataSourceLabel} · {items.length} SAP ROWS
+              {fmt(tr.explorer.activeDataset, { label: dataSourceLabel, count: items.length })}
             </div>
             <h2 className="text-base font-bold text-slate-900 dark:text-white">
-              Master SAP Extraction Ingestion (FUP COMEX.xlsx)
+              {tr.explorer.title}
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400 max-w-2xl">
-              Drag and drop your <span className="font-mono">FUP COMEX.xlsx</span> file (sheet{' '}
-              <span className="font-mono">comex FUP</span>) here. Parses both flat SAP MM/FI/Comex columns
-              and embedded JSON columns (<span className="font-mono">PROCESSOS_JSON</span>,{' '}
+              {tr.explorer.descriptionPrefix} (
+              <span className="font-mono">PROCESSOS_JSON</span>,{' '}
               <span className="font-mono">DETALHES_FISCAIS_JSON</span>,{' '}
               <span className="font-mono">FATURAS_JSON</span>,{' '}
               <span className="font-mono">FINANCEIRO_JSON</span>).
@@ -67,7 +70,7 @@ export const SapFupExplorer: React.FC<SapFupExplorerProps> = ({
           <div className="flex flex-wrap items-center gap-2">
             <label className="cursor-pointer inline-flex items-center gap-2 px-4 py-2 text-xs font-medium rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white">
               <Upload className="w-3.5 h-3.5" />
-              Select FUP COMEX.xlsx
+              {tr.explorer.selectBtn}
               <input
                 type="file"
                 accept=".xlsx,.xls,.csv"
@@ -85,7 +88,7 @@ export const SapFupExplorer: React.FC<SapFupExplorerProps> = ({
               className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-medium rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
             >
               <FileSpreadsheet className="w-3.5 h-3.5" />
-              Download Sample FUP COMEX.xlsx
+              {tr.explorer.downloadSample}
             </button>
 
             <button
@@ -94,7 +97,7 @@ export const SapFupExplorer: React.FC<SapFupExplorerProps> = ({
               className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
             >
               <RotateCcw className="w-3.5 h-3.5" />
-              Reset MFX Seed
+              {tr.explorer.resetSeed}
             </button>
           </div>
         </div>
@@ -105,22 +108,22 @@ export const SapFupExplorer: React.FC<SapFupExplorerProps> = ({
         <div className="xl:col-span-7 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800">
             <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
-              Normalized SAP FUP Rows
+              {tr.explorer.tableTitle}
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Click any row to inspect its parsed SAP JSON structures on the right
+              {tr.explorer.tableSubtitle}
             </p>
           </div>
           <div className="overflow-x-auto max-h-[460px]">
             <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="bg-slate-50 dark:bg-slate-950/60 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800 whitespace-nowrap">
-                  <th className="py-2 px-3">PO / Item</th>
-                  <th className="py-2 px-3">MFX Ref</th>
-                  <th className="py-2 px-3">Material</th>
-                  <th className="py-2 px-3">Ato Concess.</th>
-                  <th className="py-2 px-3 text-right">Net Value</th>
-                  <th className="py-2 px-3">Status</th>
+                  <th className="py-2 px-3">{tr.explorer.colPoItem}</th>
+                  <th className="py-2 px-3">{tr.explorer.colMfxRef}</th>
+                  <th className="py-2 px-3">{tr.explorer.colMaterial}</th>
+                  <th className="py-2 px-3">{tr.explorer.colAc}</th>
+                  <th className="py-2 px-3 text-right">{tr.explorer.colNetValue}</th>
+                  <th className="py-2 px-3">{tr.explorer.colStatus}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800/70">
@@ -152,7 +155,7 @@ export const SapFupExplorer: React.FC<SapFupExplorerProps> = ({
                     </td>
                     <td className="py-2 px-3 whitespace-nowrap">
                       <StatusBadge
-                        label={row.STATUS_PRAZO_ENTREGA}
+                        label={translateDeliveryStatus(row.STATUS_PRAZO_ENTREGA, lang)}
                         tone={getDeliveryStatusTone(row.STATUS_PRAZO_ENTREGA)}
                       />
                     </td>
@@ -169,12 +172,15 @@ export const SapFupExplorer: React.FC<SapFupExplorerProps> = ({
             <div className="flex items-center gap-2">
               <Code2 className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
               <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
-                SAP Embedded JSON Payload Inspector
+                {tr.explorer.inspectorTitle}
               </h3>
             </div>
             {selectedItem && (
               <span className="text-xs font-mono text-slate-500">
-                PO {selectedItem.PEDIDO} · {formatNumber(selectedItem.ESTOQUE_SOMA_TRES_CATEGORIAS_PLANTA_0003, 0)} stock
+                {fmt(tr.explorer.poStockBadge, {
+                  po: selectedItem.PEDIDO,
+                  stock: formatNumber(selectedItem.ESTOQUE_SOMA_TRES_CATEGORIAS_PLANTA_0003, 0),
+                })}
               </span>
             )}
           </div>
@@ -214,7 +220,7 @@ export const SapFupExplorer: React.FC<SapFupExplorerProps> = ({
             </div>
           ) : (
             <div className="py-12 text-center text-xs text-slate-500">
-              Select a row on the left to inspect its parsed SAP JSON structures.
+              {tr.explorer.selectRowHint}
             </div>
           )}
         </div>

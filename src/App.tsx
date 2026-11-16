@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
+  BarChart3,
   Calendar,
   ChevronLeft,
   ChevronRight,
@@ -12,6 +13,7 @@ import {
   Moon,
   Receipt,
   RotateCcw,
+  Scale,
   Search,
   Ship,
   Sun,
@@ -36,6 +38,7 @@ import {
   buildMaterialAnalytics,
   buildNumerarioAnalysis,
   buildShipmentProcesses,
+  buildShipmentWorthinessAnalysis,
   detectSimilarMaterials,
   extractAvailableYears,
   filterFupItems,
@@ -50,15 +53,22 @@ import { PqrControlPanel } from './components/PqrControlPanel';
 import { KraljicMatrixPanel } from './components/KraljicMatrixPanel';
 import { SimilarItemsPanel } from './components/SimilarItemsPanel';
 import { NumerarioCostsPanel } from './components/NumerarioCostsPanel';
+import { ShipmentWorthinessPanel } from './components/ShipmentWorthinessPanel';
+import { ComexChartsPanel } from './components/ComexChartsPanel';
+import { useI18n } from './i18n/I18nContext';
+import { LANGUAGE_OPTIONS } from './i18n/translations';
+import { translateDeliveryStatus } from './i18n/helpers';
 
 type TabId =
   | 'monitoring'
+  | 'comexCharts'
   | 'shipments'
   | 'matrix'
   | 'pqr'
   | 'kraljic'
   | 'similar'
   | 'numerario'
+  | 'worth'
   | 'payments'
   | 'partners'
   | 'explorer';
@@ -80,20 +90,20 @@ function readStorage<T>(key: string, fallback: T): T {
   }
 }
 
-const MONTH_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: '01', label: '01 · Jan' },
-  { value: '02', label: '02 · Feb' },
-  { value: '03', label: '03 · Mar' },
-  { value: '04', label: '04 · Apr' },
-  { value: '05', label: '05 · May' },
-  { value: '06', label: '06 · Jun' },
-  { value: '07', label: '07 · Jul' },
-  { value: '08', label: '08 · Aug' },
-  { value: '09', label: '09 · Sep' },
-  { value: '10', label: '10 · Oct' },
-  { value: '11', label: '11 · Nov' },
-  { value: '12', label: '12 · Dec' },
-];
+const MONTH_KEYS = [
+  '01',
+  '02',
+  '03',
+  '04',
+  '05',
+  '06',
+  '07',
+  '08',
+  '09',
+  '10',
+  '11',
+  '12',
+] as const;
 
 const DEFAULT_FILTERS: ComexFilters = {
   search: '',
@@ -110,17 +120,24 @@ const DEFAULT_FILTERS: ComexFilters = {
 };
 
 export default function App() {
+  const { lang, setLang, tr, fmt } = useI18n();
   const [activeTab, setActiveTab] = useState<TabId>('monitoring');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  useEffect(() => {
+    window.scrollTo({ top: 0 });
+  }, [activeTab]);
+
   const [isDark, setIsDark] = useState<boolean>(() => {
     const saved = localStorage.getItem(LS_THEME_KEY);
     return saved ? saved === 'dark' : true;
   });
 
   const [rawItems, setRawItems] = useState<FupItemRow[]>(INITIAL_MFX_SEED_DATA);
-  const [dataSourceLabel, setDataSourceLabel] = useState<string>('MFX Baseline Dataset');
+  const [uploadedSourceLabel, setUploadedSourceLabel] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadBanner, setUploadBanner] = useState<string | null>(null);
+  const dataSourceLabel = uploadedSourceLabel ?? tr.app.baselineDataset;
 
   const [filters, setFilters] = useState<ComexFilters>(DEFAULT_FILTERS);
   const [selectedProcessRef, setSelectedProcessRef] = useState<string | null>(null);
@@ -264,18 +281,18 @@ export default function App() {
       const buffer = await file.arrayBuffer();
       const { items, sheetName } = parseFupWorkbook(buffer);
       if (items.length === 0) {
-        setUploadError(`Worksheet "${sheetName}" in ${file.name} did not contain any valid SAP rows.`);
+        setUploadError(fmt(tr.app.uploadNoRows, { sheetName, fileName: file.name }));
         return;
       }
       setRawItems(items);
       setFilters(DEFAULT_FILTERS);
       setSelectedProcessRef(null);
-      setDataSourceLabel(`${file.name} (${sheetName})`);
-      setUploadBanner(`Loaded ${items.length} SAP FUP rows from "${file.name}" (sheet: ${sheetName}).`);
-    } catch (err) {
-      setUploadError(
-        err instanceof Error ? err.message : 'Failed to parse the uploaded Excel workbook.'
+      setUploadedSourceLabel(`${file.name} (${sheetName})`);
+      setUploadBanner(
+        fmt(tr.app.uploadSuccess, { count: items.length, fileName: file.name, sheetName })
       );
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : tr.app.uploadErrorFallback);
     }
   };
 
@@ -357,76 +374,82 @@ export default function App() {
     return res.counts.pendingCashCallCount;
   }, [filteredItems, processes, numerarioOverrides]);
 
+  const worthFlaggedCount = useMemo(() => {
+    const res = buildShipmentWorthinessAnalysis(processes, filteredItems, rawItems);
+    return res.summary.notWorthItCount + res.summary.reviewCount;
+  }, [processes, filteredItems, rawItems]);
+
   const navItems: Array<{
     id: TabId;
     label: string;
-    shortLabel: string;
     icon: React.ComponentType<{ className?: string }>;
     badge?: number | string;
   }> = [
     {
       id: 'monitoring',
-      label: 'Monitoring Control',
-      shortLabel: 'Executive',
+      label: tr.nav.monitoring,
       icon: Activity,
       badge: filteredItems.filter((i) => i.QUANTIDADE_PENDENTE > 0).length,
     },
     {
+      id: 'comexCharts',
+      label: tr.nav.comexCharts,
+      icon: BarChart3,
+      badge: 12,
+    },
+    {
       id: 'shipments',
-      label: 'Shipments Comex',
-      shortLabel: 'Shipments',
+      label: tr.nav.shipments,
       icon: Ship,
       badge: processes.length,
     },
     {
       id: 'matrix',
-      label: 'Order Status Matrix',
-      shortLabel: 'Matrix',
+      label: tr.nav.matrix,
       icon: Grid3x3,
     },
     {
       id: 'pqr',
-      label: 'PQR Control',
-      shortLabel: 'PQR',
+      label: tr.nav.pqr,
       icon: Layers,
       badge: distinctMaterialCount,
     },
     {
       id: 'kraljic',
-      label: 'Kraljic Matrix',
-      shortLabel: 'Kraljic',
+      label: tr.nav.kraljic,
       icon: Target,
     },
     {
       id: 'similar',
-      label: 'Similar Items',
-      shortLabel: 'Similar',
+      label: tr.nav.similar,
       icon: CopyCheck,
       badge: similarGroupCount,
     },
     {
       id: 'numerario',
-      label: 'Numerario Costs',
-      shortLabel: 'Numerário',
+      label: tr.nav.numerario,
       icon: Receipt,
       badge: numerarioPendingCount,
     },
     {
+      id: 'worth',
+      label: tr.nav.worth,
+      icon: Scale,
+      badge: worthFlaggedCount,
+    },
+    {
       id: 'payments',
-      label: 'Payments & Cash Flow',
-      shortLabel: 'Cash Flow',
+      label: tr.nav.payments,
       icon: DollarSign,
     },
     {
       id: 'partners',
-      label: 'Partner 360° & SWOT',
-      shortLabel: 'SWOT',
+      label: tr.nav.partners,
       icon: Users,
     },
     {
       id: 'explorer',
-      label: 'SAP FUP Explorer',
-      shortLabel: 'SAP FUP',
+      label: tr.nav.explorer,
       icon: Database,
       badge: rawItems.length,
     },
@@ -445,20 +468,20 @@ export default function App() {
         <div className="h-14 px-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
           {!sidebarCollapsed && (
             <span className="font-display font-bold text-sm tracking-tight text-slate-900 dark:text-white whitespace-nowrap truncate">
-              MFX Comex Control
+              {tr.app.brand}
             </span>
           )}
           <button
             type="button"
             onClick={() => setSidebarCollapsed((c) => !c)}
-            aria-label={sidebarCollapsed ? 'Expand navigation sidebar' : 'Collapse navigation sidebar'}
+            aria-label={sidebarCollapsed ? tr.app.expandSidebar : tr.app.collapseSidebar}
             className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 ml-auto"
           >
             {sidebarCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
           </button>
         </div>
 
-        <nav className="flex-1 p-2 space-y-1" aria-label="Comex modules">
+        <nav className="flex-1 p-2 space-y-1" aria-label={tr.app.navAriaLabel}>
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
@@ -501,7 +524,10 @@ export default function App() {
               {dataSourceLabel}
             </div>
             <div className="font-mono tabular-nums">
-              {filteredItems.length} visible · {deletedCount} deleted SAP
+              {fmt(tr.app.datasetFooter, {
+                visible: filteredItems.length,
+                deleted: deletedCount,
+              })}
             </div>
           </div>
         )}
@@ -518,17 +544,43 @@ export default function App() {
               </h1>
               <span className="hidden sm:inline text-xs text-slate-400">/</span>
               <span className="hidden sm:inline text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap truncate">
-                MFX Intelligent Comex Control &amp; Monitoring System
+                {tr.app.systemSubtitle}
               </span>
             </div>
 
-            <div className="flex items-center gap-2.5 shrink-0">
+            <div className="flex items-center gap-2 shrink-0">
+              <div
+                role="group"
+                aria-label={tr.app.languageGroupLabel}
+                className="inline-flex items-center rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-950 p-0.5 shrink-0"
+              >
+                {LANGUAGE_OPTIONS.map((opt) => {
+                  const active = lang === opt.code;
+                  return (
+                    <button
+                      key={opt.code}
+                      type="button"
+                      onClick={() => setLang(opt.code)}
+                      aria-pressed={active}
+                      title={opt.name}
+                      className={`px-2 py-1 text-[11px] font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 ${
+                        active
+                          ? 'bg-cyan-600 text-white shadow-xs'
+                          : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+
               <input
                 ref={fileInputRef}
                 type="file"
                 accept=".xlsx,.xls,.csv"
                 className="hidden"
-                aria-label="Upload FUP COMEX.xlsx file"
+                aria-label={tr.app.uploadAriaLabel}
                 onChange={(e) => {
                   const f = e.target.files?.[0];
                   if (f) handleFileUpload(f);
@@ -541,14 +593,14 @@ export default function App() {
                 className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white transition-colors whitespace-nowrap shrink-0"
               >
                 <Upload className="w-3.5 h-3.5" />
-                Upload FUP COMEX.xlsx
+                {tr.app.uploadBtn}
               </button>
 
               <button
                 type="button"
                 onClick={() => setIsDark((d) => !d)}
-                aria-label={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
-                title={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+                aria-label={isDark ? tr.app.switchToLight : tr.app.switchToDark}
+                title={isDark ? tr.app.switchToLight : tr.app.switchToDark}
                 className="p-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
               >
                 {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
@@ -562,8 +614,8 @@ export default function App() {
               <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="text"
-                aria-label="Global Comex search"
-                placeholder="Search PO, MFX, PEP, AC, NCM..."
+                aria-label={tr.app.searchAriaLabel}
+                placeholder={tr.app.searchPlaceholder}
                 value={filters.search}
                 onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
                 className="w-full pl-8 pr-2 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white placeholder:text-slate-400"
@@ -571,12 +623,12 @@ export default function App() {
             </div>
 
             <select
-              aria-label="Filter by Project PEP"
+              aria-label={tr.app.filterPep}
               value={filters.pep}
               onChange={(e) => setFilters((f) => ({ ...f, pep: e.target.value }))}
-              className="px-2 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white max-w-[120px]"
+              className="px-2 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white max-w-[140px]"
             >
-              <option value="">All Projects</option>
+              <option value="">{tr.app.allProjects}</option>
               {filterOptions.peps.map((p) => (
                 <option key={p} value={p}>
                   {p}
@@ -585,13 +637,13 @@ export default function App() {
             </select>
 
             <select
-              aria-label="Filter by Ato Concessório"
+              aria-label={tr.app.filterAc}
               value={filters.atoConcessorio}
               onChange={(e) => setFilters((f) => ({ ...f, atoConcessorio: e.target.value }))}
-              className="px-2 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white max-w-[105px]"
+              className="px-2 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white max-w-[120px]"
             >
-              <option value="">All ACs</option>
-              <option value="__MISSING__">Missing AC</option>
+              <option value="">{tr.app.allAcs}</option>
+              <option value="__MISSING__">{tr.app.missingAc}</option>
               {filterOptions.acs.map((ac) => (
                 <option key={ac} value={ac}>
                   AC {ac}
@@ -600,12 +652,12 @@ export default function App() {
             </select>
 
             <select
-              aria-label="Filter by Supplier"
+              aria-label={tr.app.filterSupplier}
               value={filters.supplier}
               onChange={(e) => setFilters((f) => ({ ...f, supplier: e.target.value }))}
-              className="px-2 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white max-w-[120px]"
+              className="px-2 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white max-w-[140px]"
             >
-              <option value="">All Suppliers</option>
+              <option value="">{tr.app.allSuppliers}</option>
               {filterOptions.suppliers.map((s) => (
                 <option key={s} value={s}>
                   {s}
@@ -614,13 +666,13 @@ export default function App() {
             </select>
 
             <select
-              aria-label="Filter by NCM"
+              aria-label={tr.app.filterNcm}
               value={filters.ncm}
               onChange={(e) => setFilters((f) => ({ ...f, ncm: e.target.value }))}
-              className="px-2 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white max-w-[98px]"
+              className="px-2 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white max-w-[120px]"
             >
-              <option value="">All NCMs</option>
-              {filterOptions.hasMissingNcm && <option value="__MISSING__">SEM NCM</option>}
+              <option value="">{tr.app.allNcms}</option>
+              {filterOptions.hasMissingNcm && <option value="__MISSING__">{tr.app.noNcm}</option>}
               {filterOptions.ncms.map((n) => (
                 <option key={n} value={n}>
                   {n}
@@ -629,12 +681,12 @@ export default function App() {
             </select>
 
             <select
-              aria-label="Filter by Buyer"
+              aria-label={tr.app.filterBuyer}
               value={filters.buyer}
               onChange={(e) => setFilters((f) => ({ ...f, buyer: e.target.value }))}
-              className="px-2 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white max-w-[98px]"
+              className="px-2 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white max-w-[130px]"
             >
-              <option value="">All Buyers</option>
+              <option value="">{tr.app.allBuyers}</option>
               {filterOptions.buyers.map((b) => (
                 <option key={b} value={b}>
                   {b}
@@ -643,7 +695,7 @@ export default function App() {
             </select>
 
             <select
-              aria-label="Filter by Delivery Status"
+              aria-label={tr.app.filterStatus}
               value={filters.status}
               onChange={(e) => {
                 const nextStatus = e.target.value;
@@ -653,12 +705,12 @@ export default function App() {
                   hideDeleted: nextStatus === 'ITEM EXCLUIDO' ? false : f.hideDeleted,
                 }));
               }}
-              className="px-2 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white max-w-[104px]"
+              className="px-2 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white max-w-[135px]"
             >
-              <option value="">All Status</option>
+              <option value="">{tr.app.allStatus}</option>
               {filterOptions.statuses.map((st) => (
                 <option key={st} value={st}>
-                  {st}
+                  {translateDeliveryStatus(st, lang)}
                 </option>
               ))}
             </select>
@@ -666,29 +718,29 @@ export default function App() {
             <div className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 shrink-0">
               <Calendar className="w-3.5 h-3.5 text-cyan-600 dark:text-cyan-400 shrink-0" />
               <select
-                aria-label="Date field basis"
-                title="Ops Date filters shipments by ETD/ETA/DI and unshipped POs by PO Date"
+                aria-label={tr.app.dateBasisAriaLabel}
+                title={tr.app.dateBasisTitle}
                 value={filters.dateField}
                 onChange={(e) =>
                   setFilters((f) => ({ ...f, dateField: e.target.value as DateFilterBasis }))
                 }
                 className="py-1 pr-1 text-xs bg-transparent text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer"
               >
-                <option value="OPS" className="bg-white dark:bg-slate-900">Ops Date</option>
-                <option value="PO" className="bg-white dark:bg-slate-900">PO Date</option>
-                <option value="ETD" className="bg-white dark:bg-slate-900">ETD</option>
-                <option value="ETA" className="bg-white dark:bg-slate-900">ETA</option>
-                <option value="DI" className="bg-white dark:bg-slate-900">DI Date</option>
-                <option value="DELIVERY" className="bg-white dark:bg-slate-900">Delivery</option>
+                <option value="OPS" className="bg-white dark:bg-slate-900">{tr.app.dateBasisOps}</option>
+                <option value="PO" className="bg-white dark:bg-slate-900">{tr.app.dateBasisPo}</option>
+                <option value="ETD" className="bg-white dark:bg-slate-900">{tr.app.dateBasisEtd}</option>
+                <option value="ETA" className="bg-white dark:bg-slate-900">{tr.app.dateBasisEta}</option>
+                <option value="DI" className="bg-white dark:bg-slate-900">{tr.app.dateBasisDi}</option>
+                <option value="DELIVERY" className="bg-white dark:bg-slate-900">{tr.app.dateBasisDelivery}</option>
               </select>
               <span className="h-3.5 w-px bg-slate-300 dark:bg-slate-700" aria-hidden="true" />
               <select
-                aria-label="Filter by Year"
+                aria-label={tr.app.filterYear}
                 value={filters.year}
                 onChange={(e) => setFilters((f) => ({ ...f, year: e.target.value }))}
                 className="py-1 px-1 text-xs font-mono tabular-nums bg-transparent text-slate-900 dark:text-white focus:outline-none cursor-pointer"
               >
-                <option value="" className="bg-white dark:bg-slate-900">All Years</option>
+                <option value="" className="bg-white dark:bg-slate-900">{tr.app.allYears}</option>
                 {filters.year && !availableYears.includes(filters.year) && (
                   <option value={filters.year} className="bg-white dark:bg-slate-900">
                     {filters.year}
@@ -702,15 +754,15 @@ export default function App() {
               </select>
               <span className="h-3.5 w-px bg-slate-300 dark:bg-slate-700" aria-hidden="true" />
               <select
-                aria-label="Filter by Month"
+                aria-label={tr.app.filterMonth}
                 value={filters.month}
                 onChange={(e) => setFilters((f) => ({ ...f, month: e.target.value }))}
                 className="py-1 pl-1 text-xs bg-transparent text-slate-900 dark:text-white focus:outline-none cursor-pointer"
               >
-                <option value="" className="bg-white dark:bg-slate-900">All Months</option>
-                {MONTH_OPTIONS.map((m) => (
-                  <option key={m.value} value={m.value} className="bg-white dark:bg-slate-900">
-                    {m.label}
+                <option value="" className="bg-white dark:bg-slate-900">{tr.app.allMonths}</option>
+                {MONTH_KEYS.map((m) => (
+                  <option key={m} value={m} className="bg-white dark:bg-slate-900">
+                    {tr.months[m]}
                   </option>
                 ))}
               </select>
@@ -730,7 +782,7 @@ export default function App() {
                 }}
                 className="accent-cyan-600 rounded"
               />
-              <span>Hide Deleted (LOEKZ=&apos;L&apos;)</span>
+              <span>{tr.app.hideDeleted}</span>
             </label>
 
             {hasActiveFilters && (
@@ -740,7 +792,7 @@ export default function App() {
                 className="inline-flex items-center gap-1 px-2 py-1.5 text-xs font-medium rounded-lg text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 whitespace-nowrap shrink-0"
               >
                 <RotateCcw className="w-3 h-3" />
-                Reset
+                {tr.app.reset}
               </button>
             )}
           </div>
@@ -755,7 +807,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setUploadError(null)}
-                  aria-label="Dismiss error"
+                  aria-label={tr.app.dismissError}
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -767,7 +819,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setUploadBanner(null)}
-                  aria-label="Dismiss message"
+                  aria-label={tr.app.dismissMessage}
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -792,6 +844,17 @@ export default function App() {
               onFilterByNcm={(ncm) => {
                 const nextVal = ncm === 'SEM NCM' ? '__MISSING__' : ncm;
                 setFilters((f) => ({ ...f, ncm: f.ncm === nextVal ? '' : nextVal }));
+              }}
+            />
+          )}
+
+          {activeTab === 'comexCharts' && (
+            <ComexChartsPanel
+              items={filteredItems}
+              processes={processes}
+              onSelectProcess={(ref) => {
+                setSelectedProcessRef(ref);
+                setActiveTab('shipments');
               }}
             />
           )}
@@ -866,6 +929,18 @@ export default function App() {
             />
           )}
 
+          {activeTab === 'worth' && (
+            <ShipmentWorthinessPanel
+              processes={processes}
+              items={filteredItems}
+              allItems={rawItems}
+              onSelectProcess={(ref) => {
+                setSelectedProcessRef(ref);
+                setActiveTab('shipments');
+              }}
+            />
+          )}
+
           {activeTab === 'payments' && (
             <PaymentsCashFlow items={filteredItems} processes={processes} />
           )}
@@ -888,8 +963,8 @@ export default function App() {
                 setRawItems(INITIAL_MFX_SEED_DATA);
                 setFilters(DEFAULT_FILTERS);
                 setSelectedProcessRef(null);
-                setDataSourceLabel('MFX Baseline Dataset');
-                setUploadBanner('Restored MFX baseline dataset.');
+                setUploadedSourceLabel(null);
+                setUploadBanner(tr.app.restoredSeedBanner);
               }}
             />
           )}

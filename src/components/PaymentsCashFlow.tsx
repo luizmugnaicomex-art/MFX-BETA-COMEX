@@ -24,6 +24,12 @@ import {
 } from '../utils/chartFormatters';
 import { exportCashFlowExcel, exportCashFlowPdf } from '../utils/exportReports';
 import { StatusBadge, getFinancialStatusTone } from './StatusBadge';
+import { useI18n } from '../i18n/I18nContext';
+import {
+  translateFinancialCategory,
+  translateFinancialSource,
+  translateFinancialStatus,
+} from '../i18n/helpers';
 
 interface PaymentsCashFlowProps {
   items: FupItemRow[];
@@ -31,6 +37,7 @@ interface PaymentsCashFlowProps {
 }
 
 export const PaymentsCashFlow: React.FC<PaymentsCashFlowProps> = ({ items, processes }) => {
+  const { lang, tr, fmt } = useI18n();
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'PAGO' | 'A VENCER' | 'VENCIDA' | 'PROJETADO'>('ALL');
   const [sourceFilter, setSourceFilter] = useState<'ALL' | 'MIRO/FI' | 'LOGISTICS' | 'CUSTOMS/TAXES'>('ALL');
 
@@ -84,42 +91,42 @@ export const PaymentsCashFlow: React.FC<PaymentsCashFlowProps> = ({ items, proce
       {/* Financial Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4">
-          <div className="text-xs text-slate-500 dark:text-slate-400">Settled / Paid (Compensado FI)</div>
+          <div className="text-xs text-slate-500 dark:text-slate-400">{tr.payments.settledTitle}</div>
           <div className="mt-2 text-2xl font-bold font-mono tabular-nums text-emerald-700 dark:text-emerald-300">
             {formatCurrency(totals.paid, 'BRL')}
           </div>
           <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-            AUGBL cleared invoices & delivered freights
+            {tr.payments.settledSub}
           </div>
         </div>
 
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4">
-          <div className="text-xs text-slate-500 dark:text-slate-400">Upcoming / Projected Outflows</div>
+          <div className="text-xs text-slate-500 dark:text-slate-400">{tr.payments.upcomingTitle}</div>
           <div className="mt-2 text-2xl font-bold font-mono tabular-nums text-amber-700 dark:text-amber-300">
             {formatCurrency(totals.upcoming, 'BRL')}
           </div>
           <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-            MIRO A Vencer, Numerário & Open PO forecasts
+            {tr.payments.upcomingSub}
           </div>
         </div>
 
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4">
-          <div className="text-xs text-slate-500 dark:text-slate-400">Overdue MIRO Invoices (Vencidas)</div>
+          <div className="text-xs text-slate-500 dark:text-slate-400">{tr.payments.overdueTitle}</div>
           <div className="mt-2 text-2xl font-bold font-mono tabular-nums text-rose-700 dark:text-rose-400">
             {formatCurrency(totals.overdue, 'BRL')}
           </div>
           <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-            Requires immediate alignment with Finance (F110)
+            {tr.payments.overdueSub}
           </div>
         </div>
 
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4">
-          <div className="text-xs text-slate-500 dark:text-slate-400">Total Shipment Landed Cost</div>
+          <div className="text-xs text-slate-500 dark:text-slate-400">{tr.payments.landedTitle}</div>
           <div className="mt-2 text-2xl font-bold font-mono tabular-nums text-slate-900 dark:text-white">
             {formatCurrency(totals.totalLanded, 'BRL')}
           </div>
           <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-            FOB + Logistics + Port + Taxes ({processes.length} processes)
+            {fmt(tr.payments.landedSub, { count: processes.length })}
           </div>
         </div>
       </div>
@@ -129,10 +136,10 @@ export const PaymentsCashFlow: React.FC<PaymentsCashFlowProps> = ({ items, proce
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <div>
             <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
-              Monthly Cash Flow Forecast Timeline (BRL)
+              {tr.payments.chartTitle}
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Settled vs. Upcoming vs. Overdue disbursements across MIRO/FI, Logistics, and Customs
+              {tr.payments.chartSubtitle}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -142,7 +149,7 @@ export const PaymentsCashFlow: React.FC<PaymentsCashFlowProps> = ({ items, proce
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white"
             >
               <Download className="w-3.5 h-3.5" />
-              Export Excel
+              {tr.payments.exportExcel}
             </button>
             <button
               type="button"
@@ -150,7 +157,7 @@ export const PaymentsCashFlow: React.FC<PaymentsCashFlowProps> = ({ items, proce
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white"
             >
               <FileText className="w-3.5 h-3.5" />
-              Export Finance PDF
+              {tr.payments.exportPdf}
             </button>
           </div>
         </div>
@@ -173,9 +180,9 @@ export const PaymentsCashFlow: React.FC<PaymentsCashFlowProps> = ({ items, proce
                 labelStyle={CHART_TOOLTIP_LABEL_STYLE}
               />
               <Legend wrapperStyle={{ fontSize: '12px' }} />
-              <Bar dataKey="paid" name="Settled (Pago)" stackId="a" fill="#10b981" radius={[0, 0, 0, 0]} />
-              <Bar dataKey="open" name="Upcoming / Projected" stackId="a" fill="#f59e0b" radius={[0, 0, 0, 0]} />
-              <Bar dataKey="overdue" name="Overdue (Vencida)" stackId="a" fill="#f43f5e" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="paid" name={tr.payments.seriesPaid} stackId="a" fill="#10b981" radius={[0, 0, 0, 0]} />
+              <Bar dataKey="open" name={tr.payments.seriesOpen} stackId="a" fill="#f59e0b" radius={[0, 0, 0, 0]} />
+              <Bar dataKey="overdue" name={tr.payments.seriesOverdue} stackId="a" fill="#f43f5e" radius={[4, 4, 0, 0]} />
               <Line
                 type="monotone"
                 dataKey="total"
@@ -205,26 +212,26 @@ export const PaymentsCashFlow: React.FC<PaymentsCashFlowProps> = ({ items, proce
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
         <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800">
           <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
-            Shipment Cost Breakdown per MFX Process
+            {tr.payments.breakdownTitle}
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            FOB BRL, International Freight, Port Warehouse, Capatazia/Broker/Trucking, Customs Taxes & Cost %
+            {tr.payments.breakdownSubtitle}
           </p>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-50 dark:bg-slate-950/60 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800 whitespace-nowrap">
-                <th className="py-2.5 px-3 font-medium">Ref MFX</th>
-                <th className="py-2.5 px-3 font-medium">Supplier / Exporter</th>
-                <th className="py-2.5 px-3 font-medium text-right">FOB (Orig)</th>
-                <th className="py-2.5 px-3 font-medium text-right">FOB (BRL)</th>
-                <th className="py-2.5 px-3 font-medium text-right">Freight (BRL)</th>
-                <th className="py-2.5 px-3 font-medium text-right">Warehouse</th>
-                <th className="py-2.5 px-3 font-medium text-right">Services & Extras</th>
-                <th className="py-2.5 px-3 font-medium text-right">Taxes (BRL)</th>
-                <th className="py-2.5 px-3 font-medium text-right">Total Landed (BRL)</th>
-                <th className="py-2.5 px-3 font-medium text-right">Log % FOB</th>
+                <th className="py-2.5 px-3 font-medium">{tr.payments.colRefMfx}</th>
+                <th className="py-2.5 px-3 font-medium">{tr.payments.colExporter}</th>
+                <th className="py-2.5 px-3 font-medium text-right">{tr.payments.colFobOrig}</th>
+                <th className="py-2.5 px-3 font-medium text-right">{tr.payments.colFobBrl}</th>
+                <th className="py-2.5 px-3 font-medium text-right">{tr.payments.colFreightBrl}</th>
+                <th className="py-2.5 px-3 font-medium text-right">{tr.payments.colWarehouse}</th>
+                <th className="py-2.5 px-3 font-medium text-right">{tr.payments.colServices}</th>
+                <th className="py-2.5 px-3 font-medium text-right">{tr.payments.colTaxesBrl}</th>
+                <th className="py-2.5 px-3 font-medium text-right">{tr.payments.colTotalLanded}</th>
+                <th className="py-2.5 px-3 font-medium text-right">{tr.payments.colLogFob}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/70 whitespace-nowrap">
@@ -270,35 +277,35 @@ export const PaymentsCashFlow: React.FC<PaymentsCashFlowProps> = ({ items, proce
         <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
-              SAP MIRO / FI & Customs Cash Flow Schedule
+              {tr.payments.ledgerTitle}
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Parsed directly from FATURAS_JSON, FINANCEIRO_JSON, and customs/logistics disbursements
+              {tr.payments.ledgerSubtitle}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <select
-              aria-label="Filter cash flow by source"
+              aria-label={tr.payments.filterSourceAria}
               value={sourceFilter}
               onChange={(e) => setSourceFilter(e.target.value as typeof sourceFilter)}
               className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
             >
-              <option value="ALL">All Sources</option>
-              <option value="MIRO/FI">SAP MIRO / FI</option>
-              <option value="LOGISTICS">Logistics & Port</option>
-              <option value="CUSTOMS/TAXES">Customs Taxes</option>
+              <option value="ALL">{tr.payments.allSources}</option>
+              <option value="MIRO/FI">{tr.enums.financialSource.MIRO_FI}</option>
+              <option value="LOGISTICS">{tr.enums.financialSource.LOGISTICS}</option>
+              <option value="CUSTOMS/TAXES">{tr.enums.financialSource.CUSTOMS_TAXES}</option>
             </select>
             <select
-              aria-label="Filter cash flow by status"
+              aria-label={tr.payments.filterStatusAria}
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
               className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
             >
-              <option value="ALL">All Statuses</option>
-              <option value="PAGO">PAGO</option>
-              <option value="A VENCER">A VENCER</option>
-              <option value="VENCIDA">VENCIDA</option>
-              <option value="PROJETADO">PROJETADO</option>
+              <option value="ALL">{tr.common.allStatuses}</option>
+              <option value="PAGO">{tr.enums.financialStatus.PAGO}</option>
+              <option value="A VENCER">{tr.enums.financialStatus.A_VENCER}</option>
+              <option value="VENCIDA">{tr.enums.financialStatus.VENCIDA}</option>
+              <option value="PROJETADO">{tr.enums.financialStatus.PROJETADO}</option>
             </select>
           </div>
         </div>
@@ -307,23 +314,23 @@ export const PaymentsCashFlow: React.FC<PaymentsCashFlowProps> = ({ items, proce
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-50 dark:bg-slate-950/60 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800 whitespace-nowrap">
-                <th className="py-2.5 px-3 font-medium">Source</th>
-                <th className="py-2.5 px-3 font-medium">PO / Ref</th>
-                <th className="py-2.5 px-3 font-medium">Partner</th>
-                <th className="py-2.5 px-3 font-medium">Document (MIRO/FI)</th>
-                <th className="py-2.5 px-3 font-medium">Category</th>
-                <th className="py-2.5 px-3 font-medium">Due Date</th>
-                <th className="py-2.5 px-3 font-medium">Clearing (AUGBL)</th>
-                <th className="py-2.5 px-3 font-medium text-right">Orig Amount</th>
-                <th className="py-2.5 px-3 font-medium text-right">BRL Value</th>
-                <th className="py-2.5 px-3 font-medium">Status</th>
+                <th className="py-2.5 px-3 font-medium">{tr.payments.colSource}</th>
+                <th className="py-2.5 px-3 font-medium">{tr.payments.colPoRef}</th>
+                <th className="py-2.5 px-3 font-medium">{tr.payments.colPartner}</th>
+                <th className="py-2.5 px-3 font-medium">{tr.payments.colDoc}</th>
+                <th className="py-2.5 px-3 font-medium">{tr.payments.colCategory}</th>
+                <th className="py-2.5 px-3 font-medium">{tr.payments.colDueDate}</th>
+                <th className="py-2.5 px-3 font-medium">{tr.payments.colClearing}</th>
+                <th className="py-2.5 px-3 font-medium text-right">{tr.payments.colOrigAmount}</th>
+                <th className="py-2.5 px-3 font-medium text-right">{tr.payments.colBrlValue}</th>
+                <th className="py-2.5 px-3 font-medium">{tr.payments.colStatus}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/70 whitespace-nowrap">
               {filteredEntries.map((entry) => (
                 <tr key={entry.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
                   <td className="py-2.5 px-3 font-mono text-[11px] text-slate-500 dark:text-slate-400">
-                    {entry.source}
+                    {translateFinancialSource(entry.source, lang)}
                   </td>
                   <td className="py-2.5 px-3">
                     <div className="font-mono font-semibold text-slate-900 dark:text-slate-100">{entry.reference}</div>
@@ -333,7 +340,9 @@ export const PaymentsCashFlow: React.FC<PaymentsCashFlowProps> = ({ items, proce
                   </td>
                   <td className="py-2.5 px-3">{entry.partner}</td>
                   <td className="py-2.5 px-3 font-mono">{entry.documentNumber}</td>
-                  <td className="py-2.5 px-3 text-slate-600 dark:text-slate-300">{entry.category}</td>
+                  <td className="py-2.5 px-3 text-slate-600 dark:text-slate-300">
+                    {translateFinancialCategory(entry.category, lang)}
+                  </td>
                   <td className="py-2.5 px-3 font-mono">{formatDateBr(entry.dueDate)}</td>
                   <td className="py-2.5 px-3 font-mono text-slate-500 dark:text-slate-400">
                     {entry.clearingDoc ? `${entry.clearingDoc} (${formatDateBr(entry.clearingDate)})` : '-'}
@@ -345,7 +354,10 @@ export const PaymentsCashFlow: React.FC<PaymentsCashFlowProps> = ({ items, proce
                     {formatCurrency(entry.amountBrl, 'BRL')}
                   </td>
                   <td className="py-2.5 px-3">
-                    <StatusBadge label={entry.status} tone={getFinancialStatusTone(entry.status)} />
+                    <StatusBadge
+                      label={translateFinancialStatus(entry.status, lang)}
+                      tone={getFinancialStatusTone(entry.status)}
+                    />
                   </td>
                 </tr>
               ))}

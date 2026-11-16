@@ -37,6 +37,12 @@ import {
   formatCompactQty,
 } from '../utils/chartFormatters';
 import { StatusBadge, getDeliveryStatusTone } from './StatusBadge';
+import { useI18n } from '../i18n/I18nContext';
+import {
+  translateChannel,
+  translateDeliveryStatus,
+  translatePipelineStage,
+} from '../i18n/helpers';
 
 interface ExecutivePanelProps {
   items: FupItemRow[];
@@ -57,8 +63,41 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
   onSelectProcess,
   onFilterByNcm,
 }) => {
+  const { lang, tr, fmt } = useI18n();
   const kpis = useMemo(() => computeExecutiveKpis(items, processes), [items, processes]);
   const directorMetrics = useMemo(() => computeDirectorChartMetrics(processes), [processes]);
+
+  const channelData = useMemo(
+    () =>
+      directorMetrics.channelBreakdown.map((ch) => ({
+        ...ch,
+        label: translateChannel(ch.key, lang),
+      })),
+    [directorMetrics.channelBreakdown, lang]
+  );
+
+  const modalChartData = useMemo(
+    () =>
+      directorMetrics.containerAndModal.modalChartData.map((entry) => ({
+        ...entry,
+        label:
+          entry.label === 'Aéreo'
+            ? tr.enums.modal.AEREO
+            : entry.label === 'Rodoviário'
+              ? tr.enums.modal.RODOVIARIO
+              : entry.label,
+      })),
+    [directorMetrics.containerAndModal.modalChartData, tr]
+  );
+
+  const pipelineData = useMemo(
+    () =>
+      directorMetrics.processPipeline.map((st) => ({
+        ...st,
+        label: translatePipelineStage(st.stage, lang),
+      })),
+    [directorMetrics.processPipeline, lang]
+  );
 
   const openPoItems = useMemo(
     () =>
@@ -88,7 +127,7 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4">
           <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-            <span>Active POs & Open Items</span>
+            <span>{tr.executive.activePosTitle}</span>
             <Package className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
           </div>
           <div className="mt-2 flex items-baseline gap-3">
@@ -96,12 +135,12 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
               {kpis.activePoCount} POs
             </span>
             <span className="text-xs font-mono tabular-nums text-slate-500 dark:text-slate-400">
-              {kpis.openItemCount} open lines
+              {fmt(tr.executive.openLines, { count: kpis.openItemCount })}
             </span>
           </div>
           <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
             <span className="text-slate-500 dark:text-slate-400">
-              Open Qty:{' '}
+              {tr.executive.openQty}{' '}
               <strong className="font-mono tabular-nums text-slate-900 dark:text-slate-100">
                 {formatNumber(kpis.totalOpenQty, 0)}
               </strong>
@@ -116,66 +155,68 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
 
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4">
           <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-            <span>Delivery & Schedule Health</span>
+            <span>{tr.executive.deliveryHealthTitle}</span>
             <Clock className="w-4 h-4 text-amber-600 dark:text-amber-400" />
           </div>
           <div className="mt-2 flex items-baseline gap-3">
             <span className="text-2xl font-bold font-mono tabular-nums text-slate-900 dark:text-white">
               {kpis.onTimeRate}%
             </span>
-            <span className="text-xs text-slate-500 dark:text-slate-400">On-Time Rate</span>
+            <span className="text-xs text-slate-500 dark:text-slate-400">{tr.executive.onTimeRate}</span>
           </div>
           <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
             <span className="text-emerald-700 dark:text-emerald-400 font-mono tabular-nums">
-              {kpis.onTimeCount} On-Time · {kpis.completedCount} Done
+              {fmt(tr.executive.onTimeDone, { onTime: kpis.onTimeCount, done: kpis.completedCount })}
             </span>
             <span className="text-rose-600 dark:text-rose-400 font-mono tabular-nums">
-              {kpis.delayedCount} Delayed (avg {kpis.avgDelayDays}d)
+              {fmt(tr.executive.delayedAvg, { count: kpis.delayedCount, days: kpis.avgDelayDays })}
             </span>
           </div>
         </div>
 
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4">
           <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-            <span>Active Import Processes</span>
+            <span>{tr.executive.activeProcessesTitle}</span>
             <Ship className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
           </div>
           <div className="mt-2 flex items-baseline gap-3">
             <span className="text-2xl font-bold font-mono tabular-nums text-slate-900 dark:text-white">
               {kpis.processCounts.total}
             </span>
-            <span className="text-xs text-slate-500 dark:text-slate-400">MFX Refs (25/26)</span>
+            <span className="text-xs text-slate-500 dark:text-slate-400">{tr.executive.mfxRefs}</span>
           </div>
           <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs font-mono tabular-nums">
             <span className="text-cyan-700 dark:text-cyan-300">
-              {kpis.processCounts.inTransit} Transit
+              {fmt(tr.executive.transitCount, { count: kpis.processCounts.inTransit })}
             </span>
             <span className="text-amber-700 dark:text-amber-300">
-              {kpis.processCounts.awaitingClearance + kpis.processCounts.stoppedDrawback} Clearance
+              {fmt(tr.executive.clearanceCount, {
+                count: kpis.processCounts.awaitingClearance + kpis.processCounts.stoppedDrawback,
+              })}
             </span>
             <span className="text-emerald-700 dark:text-emerald-300">
-              {kpis.processCounts.delivered} Delivered
+              {fmt(tr.executive.deliveredCount, { count: kpis.processCounts.delivered })}
             </span>
           </div>
         </div>
 
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4">
           <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-            <span>Drawback & Tax Efficiency</span>
+            <span>{tr.executive.drawbackTitle}</span>
             <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
           </div>
           <div className="mt-2 flex items-baseline gap-3">
             <span className="text-2xl font-bold font-mono tabular-nums text-slate-900 dark:text-white">
               {drawbackPct}%
             </span>
-            <span className="text-xs text-slate-500 dark:text-slate-400">Under Ato Concessório</span>
+            <span className="text-xs text-slate-500 dark:text-slate-400">{tr.executive.underAc}</span>
           </div>
           <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
             <span className="text-slate-500 dark:text-slate-400 font-mono tabular-nums">
               DBK: {formatCurrency(kpis.drawbackFobBrl, 'BRL')}
             </span>
             <span className="text-amber-700 dark:text-amber-300 font-mono tabular-nums">
-              Taxes: {formatCurrency(kpis.totalTaxesBrl, 'BRL')}
+              {fmt(tr.executive.taxesLabel, { val: formatCurrency(kpis.totalTaxesBrl, 'BRL') })}
             </span>
           </div>
         </div>
@@ -186,24 +227,27 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h2 className="text-sm font-semibold text-slate-900 dark:text-white tracking-tight">
-              Director Comex Control Overview — Channels, Containers, Pipeline &amp; Timing
+              {tr.executive.directorTitle}
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Real-time operational snapshot across {directorMetrics.totalProcesses} active import processes ({directorMetrics.registeredDiCount} DI registered)
+              {fmt(tr.executive.directorSubtitle, {
+                total: directorMetrics.totalProcesses,
+                di: directorMetrics.registeredDiCount,
+              })}
             </p>
           </div>
           <div className="flex items-center gap-3 text-xs font-mono tabular-nums text-slate-500 dark:text-slate-400">
             <span>
-              Total TEUs:{' '}
+              {tr.executive.totalTeus}{' '}
               <strong className="text-slate-900 dark:text-white">
                 {directorMetrics.containerAndModal.totalTeus}
               </strong>
             </span>
             <span>·</span>
             <span>
-              Avg Lead Time:{' '}
+              {tr.executive.avgLeadTime}{' '}
               <strong className="text-cyan-700 dark:text-cyan-300">
-                {directorMetrics.timingMetrics.avgLeadTimeDays}d
+                {directorMetrics.timingMetrics.avgLeadTimeDays}{tr.common.daysSuffix}
               </strong>
             </span>
           </div>
@@ -216,20 +260,23 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
               <div>
                 <h3 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2">
                   <ShieldAlert className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                  Customs Parametrization Channels (DI)
+                  {tr.executive.channelsTitle}
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Siscomex channel distribution &amp; FOB value exposure
+                  {tr.executive.channelsSubtitle}
                 </p>
               </div>
               <span className="text-xs font-mono tabular-nums text-slate-500 dark:text-slate-400">
-                {directorMetrics.registeredDiCount}/{directorMetrics.totalProcesses} w/ DI
+                {fmt(tr.executive.withDi, {
+                  di: directorMetrics.registeredDiCount,
+                  total: directorMetrics.totalProcesses,
+                })}
               </span>
             </div>
 
             {directorMetrics.totalProcesses === 0 ? (
               <div className="flex-1 min-h-[200px] flex items-center justify-center text-xs text-slate-400">
-                No import processes match current filters.
+                {tr.executive.noProcessesFilter}
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-center flex-1">
@@ -237,7 +284,7 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie
-                        data={directorMetrics.channelBreakdown.filter((c) => c.count > 0)}
+                        data={channelData.filter((c) => c.count > 0)}
                         dataKey="count"
                         nameKey="label"
                         cx="50%"
@@ -269,14 +316,17 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
                           );
                         }}
                       >
-                        {directorMetrics.channelBreakdown
+                        {channelData
                           .filter((c) => c.count > 0)
                           .map((entry) => (
                             <Cell key={entry.key} fill={entry.color} />
                           ))}
                       </Pie>
                       <Tooltip
-                        formatter={(value, name) => [`${value ?? 0} proc`, String(name ?? '')]}
+                        formatter={(value, name) => [
+                          fmt(tr.executive.procUnit, { count: Number(value ?? 0) }),
+                          String(name ?? ''),
+                        ]}
                         contentStyle={CHART_TOOLTIP_STYLE}
                         itemStyle={CHART_TOOLTIP_ITEM_STYLE}
                         labelStyle={CHART_TOOLTIP_LABEL_STYLE}
@@ -288,13 +338,13 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
                       {directorMetrics.totalProcesses}
                     </span>
                     <span className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400 mt-0.5">
-                      Processos
+                      {tr.executive.processesLabel}
                     </span>
                   </div>
                 </div>
 
                 <div className="sm:col-span-7 space-y-2">
-                  {directorMetrics.channelBreakdown.map((ch) => (
+                  {channelData.map((ch) => (
                     <div
                       key={ch.key}
                       className="flex items-center justify-between gap-2 text-xs py-1 border-b border-slate-100 dark:border-slate-800/70 last:border-b-0"
@@ -332,21 +382,23 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
               <div>
                 <h3 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2">
                   <Container className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
-                  Container Volume &amp; Modal Control
+                  {tr.executive.containerTitle}
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Equipment breakdown (20&apos; / 40&apos; / TEUs) vs. Air &amp; Road shipments
+                  {tr.executive.containerSubtitle}
                 </p>
               </div>
               <span className="text-xs font-mono tabular-nums text-amber-700 dark:text-amber-300">
-                {directorMetrics.containerAndModal.demurrageWatchCount} active CNTR watch
+                {fmt(tr.executive.activeCntrWatch, {
+                  count: directorMetrics.containerAndModal.demurrageWatchCount,
+                })}
               </span>
             </div>
 
             <div className="grid grid-cols-4 gap-2 mb-3">
               <div className="rounded-lg bg-slate-50 dark:bg-slate-950/70 border border-slate-200/80 dark:border-slate-800 px-2.5 py-2">
                 <div className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                  20&apos; CNTR
+                  {tr.executive.cntr20}
                 </div>
                 <div className="text-base font-bold font-mono tabular-nums text-cyan-700 dark:text-cyan-300">
                   {directorMetrics.containerAndModal.total20}
@@ -354,7 +406,7 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
               </div>
               <div className="rounded-lg bg-slate-50 dark:bg-slate-950/70 border border-slate-200/80 dark:border-slate-800 px-2.5 py-2">
                 <div className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                  40&apos; CNTR
+                  {tr.executive.cntr40}
                 </div>
                 <div className="text-base font-bold font-mono tabular-nums text-indigo-700 dark:text-indigo-300">
                   {directorMetrics.containerAndModal.total40}
@@ -362,7 +414,7 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
               </div>
               <div className="rounded-lg bg-slate-50 dark:bg-slate-950/70 border border-slate-200/80 dark:border-slate-800 px-2.5 py-2">
                 <div className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                  Total TEUs
+                  {tr.executive.totalTeusCard}
                 </div>
                 <div className="text-base font-bold font-mono tabular-nums text-slate-900 dark:text-white">
                   {directorMetrics.containerAndModal.totalTeus}
@@ -370,7 +422,7 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
               </div>
               <div className="rounded-lg bg-slate-50 dark:bg-slate-950/70 border border-slate-200/80 dark:border-slate-800 px-2.5 py-2">
                 <div className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                  Air / Sea
+                  {tr.executive.airSeaCard}
                 </div>
                 <div className="text-base font-bold font-mono tabular-nums text-amber-700 dark:text-amber-300">
                   {directorMetrics.containerAndModal.airCount}/{directorMetrics.containerAndModal.seaCount}
@@ -380,13 +432,13 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
 
             {directorMetrics.totalProcesses === 0 ? (
               <div className="flex-1 min-h-[140px] flex items-center justify-center text-xs text-slate-400">
-                No modal data for current filters.
+                {tr.executive.noModalData}
               </div>
             ) : (
               <div className="h-[155px] text-slate-700 dark:text-slate-200">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart
-                    data={directorMetrics.containerAndModal.modalChartData}
+                    data={modalChartData}
                     margin={{ top: 20, right: 12, left: -16, bottom: 2 }}
                   >
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.18)" />
@@ -405,14 +457,14 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
                     <Tooltip
                       formatter={(value, name) => [
                         Number(value ?? 0),
-                        name === 'count' ? 'Units / Shipments' : 'TEUs',
+                        name === 'count' ? tr.executive.unitsShipments : 'TEUs',
                       ]}
                       contentStyle={CHART_TOOLTIP_STYLE}
                       itemStyle={CHART_TOOLTIP_ITEM_STYLE}
                       labelStyle={CHART_TOOLTIP_LABEL_STYLE}
                     />
                     <Bar dataKey="count" name="count" radius={[5, 5, 0, 0]} maxBarSize={48}>
-                      {directorMetrics.containerAndModal.modalChartData.map((entry) => (
+                      {modalChartData.map((entry) => (
                         <Cell key={entry.label} fill={entry.color} />
                       ))}
                       <LabelList
@@ -435,20 +487,20 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
               <div>
                 <h3 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2">
                   <Layers className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-                  Process Pipeline by Operational Stage
+                  {tr.executive.pipelineTitle}
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Where import processes &amp; cargo capital are concentrated right now
+                  {tr.executive.pipelineSubtitle}
                 </p>
               </div>
               <span className="text-xs font-mono tabular-nums text-slate-500 dark:text-slate-400">
-                {directorMetrics.totalProcesses} total
+                {fmt(tr.executive.totalCount, { count: directorMetrics.totalProcesses })}
               </span>
             </div>
 
             {directorMetrics.totalProcesses === 0 ? (
               <div className="flex-1 min-h-[200px] flex items-center justify-center text-xs text-slate-400">
-                No active processes match current filters.
+                {tr.executive.noActiveProcesses}
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-center flex-1">
@@ -456,7 +508,7 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart
                       layout="vertical"
-                      data={directorMetrics.processPipeline}
+                      data={pipelineData}
                       margin={{ top: 4, right: 26, left: 2, bottom: 4 }}
                     >
                       <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.18)" horizontal={false} />
@@ -470,19 +522,22 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
                       <YAxis
                         type="category"
                         dataKey="label"
-                        width={112}
+                        width={118}
                         tick={{ fontSize: 10, fill: '#94a3b8' }}
                         axisLine={false}
                         tickLine={false}
                       />
                       <Tooltip
-                        formatter={(value) => [`${value ?? 0} processes`, 'Stage Count']}
+                        formatter={(value) => [
+                          fmt(tr.executive.processesUnit, { count: Number(value ?? 0) }),
+                          tr.executive.stageCount,
+                        ]}
                         contentStyle={CHART_TOOLTIP_STYLE}
                         itemStyle={CHART_TOOLTIP_ITEM_STYLE}
                         labelStyle={CHART_TOOLTIP_LABEL_STYLE}
                       />
                       <Bar dataKey="count" radius={[0, 5, 5, 0]} barSize={18}>
-                        {directorMetrics.processPipeline.map((entry) => (
+                        {pipelineData.map((entry) => (
                           <Cell key={entry.stage} fill={entry.color} />
                         ))}
                         <LabelList
@@ -498,7 +553,7 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
                 </div>
 
                 <div className="sm:col-span-6 space-y-2">
-                  {directorMetrics.processPipeline.map((st) => (
+                  {pipelineData.map((st) => (
                     <div
                       key={st.stage}
                       className="flex items-center justify-between gap-2 text-xs py-1 border-b border-slate-100 dark:border-slate-800/70 last:border-b-0"
@@ -533,10 +588,10 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
               <div>
                 <h3 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2">
                   <Gauge className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-                  Department Timing &amp; Lead-Time Control (Days)
+                  {tr.executive.timingTitle}
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Transit Time (ETD→ETA), Clearance (Presença→Desemb.) &amp; Port Storage days
+                  {tr.executive.timingSubtitle}
                 </p>
               </div>
             </div>
@@ -544,41 +599,41 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
             <div className="grid grid-cols-4 gap-2 mb-3">
               <div className="rounded-lg bg-slate-50 dark:bg-slate-950/70 border border-slate-200/80 dark:border-slate-800 px-2.5 py-2">
                 <div className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                  Avg Transit
+                  {tr.executive.avgTransit}
                 </div>
                 <div className="text-base font-bold font-mono tabular-nums text-cyan-700 dark:text-cyan-300">
-                  {directorMetrics.timingMetrics.avgTransitDays}d
+                  {directorMetrics.timingMetrics.avgTransitDays}{tr.common.daysSuffix}
                 </div>
               </div>
               <div className="rounded-lg bg-slate-50 dark:bg-slate-950/70 border border-slate-200/80 dark:border-slate-800 px-2.5 py-2">
                 <div className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                  Avg Clearance
+                  {tr.executive.avgClearance}
                 </div>
                 <div className="text-base font-bold font-mono tabular-nums text-emerald-700 dark:text-emerald-300">
-                  {directorMetrics.timingMetrics.avgClearanceDays}d
+                  {directorMetrics.timingMetrics.avgClearanceDays}{tr.common.daysSuffix}
                 </div>
               </div>
               <div className="rounded-lg bg-slate-50 dark:bg-slate-950/70 border border-slate-200/80 dark:border-slate-800 px-2.5 py-2">
                 <div className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                  Avg Storage
+                  {tr.executive.avgStorage}
                 </div>
                 <div className="text-base font-bold font-mono tabular-nums text-amber-700 dark:text-amber-300">
-                  {directorMetrics.timingMetrics.avgStorageDays}d
+                  {directorMetrics.timingMetrics.avgStorageDays}{tr.common.daysSuffix}
                 </div>
               </div>
               <div className="rounded-lg bg-slate-50 dark:bg-slate-950/70 border border-slate-200/80 dark:border-slate-800 px-2.5 py-2">
                 <div className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                  Avg Lead Time
+                  {tr.executive.avgLeadTimeCard}
                 </div>
                 <div className="text-base font-bold font-mono tabular-nums text-indigo-700 dark:text-indigo-300">
-                  {directorMetrics.timingMetrics.avgLeadTimeDays}d
+                  {directorMetrics.timingMetrics.avgLeadTimeDays}{tr.common.daysSuffix}
                 </div>
               </div>
             </div>
 
             {directorMetrics.timingMetrics.perProcess.length === 0 ? (
               <div className="flex-1 min-h-[140px] flex items-center justify-center text-xs text-slate-400">
-                No timing telemetry available for current filters.
+                {tr.executive.noTimingTelemetry}
               </div>
             ) : (
               <div className="h-[155px]">
@@ -605,34 +660,34 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
                       itemStyle={CHART_TOOLTIP_ITEM_STYLE}
                       labelStyle={CHART_TOOLTIP_LABEL_STYLE}
                     />
-                    <Bar dataKey="transitDays" name="Transit (d)" fill="#06b6d4" radius={[3, 3, 0, 0]}>
+                    <Bar dataKey="transitDays" name={tr.executive.transitSeries} fill="#06b6d4" radius={[3, 3, 0, 0]}>
                       <LabelList
                         dataKey="transitDays"
                         position="top"
                         fill="#06b6d4"
                         fontSize={9}
                         fontWeight={600}
-                        formatter={(v) => (Number(v) > 0 ? `${v}d` : '')}
+                        formatter={(v) => (Number(v) > 0 ? `${v}${tr.common.daysSuffix}` : '')}
                       />
                     </Bar>
-                    <Bar dataKey="clearanceDays" name="Clearance (d)" fill="#10b981" radius={[3, 3, 0, 0]}>
+                    <Bar dataKey="clearanceDays" name={tr.executive.clearanceSeries} fill="#10b981" radius={[3, 3, 0, 0]}>
                       <LabelList
                         dataKey="clearanceDays"
                         position="top"
                         fill="#10b981"
                         fontSize={9}
                         fontWeight={600}
-                        formatter={(v) => (Number(v) > 0 ? `${v}d` : '')}
+                        formatter={(v) => (Number(v) > 0 ? `${v}${tr.common.daysSuffix}` : '')}
                       />
                     </Bar>
-                    <Bar dataKey="storageDays" name="Port Storage (d)" fill="#f59e0b" radius={[3, 3, 0, 0]}>
+                    <Bar dataKey="storageDays" name={tr.executive.storageSeries} fill="#f59e0b" radius={[3, 3, 0, 0]}>
                       <LabelList
                         dataKey="storageDays"
                         position="top"
                         fill="#f59e0b"
                         fontSize={9}
                         fontWeight={600}
-                        formatter={(v) => (Number(v) > 0 ? `${v}d` : '')}
+                        formatter={(v) => (Number(v) > 0 ? `${v}${tr.common.daysSuffix}` : '')}
                       />
                     </Bar>
                   </BarChart>
@@ -643,13 +698,13 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
             <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500 dark:text-slate-400">
               <div className="flex items-center gap-3">
                 <span className="flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-sm bg-cyan-500 inline-block" /> Transit
+                  <span className="w-2 h-2 rounded-sm bg-cyan-500 inline-block" /> {tr.executive.transitLegend}
                 </span>
                 <span className="flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-sm bg-emerald-500 inline-block" /> Clearance
+                  <span className="w-2 h-2 rounded-sm bg-emerald-500 inline-block" /> {tr.executive.clearanceLegend}
                 </span>
                 <span className="flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-sm bg-amber-500 inline-block" /> Port Storage
+                  <span className="w-2 h-2 rounded-sm bg-amber-500 inline-block" /> {tr.executive.storageLegend}
                 </span>
               </div>
               <div className="flex flex-wrap gap-1.5">
@@ -659,7 +714,7 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
                     type="button"
                     onClick={() => onSelectProcess(p.processRef)}
                     className="font-mono text-cyan-700 dark:text-cyan-400 hover:underline"
-                    title={`Inspect ${p.processRef}`}
+                    title={fmt(tr.executive.inspectRef, { ref: p.processRef })}
                   >
                     {p.shortRef}
                   </button>
@@ -676,27 +731,27 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
           <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
             <div>
               <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
-                Open Quantity & Pending POs Monitor
+                {tr.executive.openMonitorTitle}
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                PO lines with QUANTIDADE_PENDENTE &gt; 0 sorted by delivery delay severity
+                {tr.executive.openMonitorSubtitle}
               </p>
             </div>
             <span className="text-xs font-mono tabular-nums text-slate-500 dark:text-slate-400">
-              {openPoItems.length} active lines
+              {fmt(tr.executive.activeLines, { count: openPoItems.length })}
             </span>
           </div>
 
           {openPoItems.length === 0 ? (
             <div className="p-8 text-center text-sm text-slate-500 dark:text-slate-400 space-y-2">
-              <div>No pending PO quantities match the active filters.</div>
+              <div>{tr.executive.noPendingPo}</div>
               {hasActiveFilters && onResetFilters && (
                 <button
                   type="button"
                   onClick={onResetFilters}
                   className="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white"
                 >
-                  Clear All Filters
+                  {tr.executive.clearAllFilters}
                 </button>
               )}
             </div>
@@ -705,14 +760,14 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="bg-slate-50 dark:bg-slate-950/60 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800 whitespace-nowrap">
-                    <th className="py-2.5 px-2 font-medium">PO / Ref MFX</th>
-                    <th className="py-2.5 px-2 font-medium">Material & Description</th>
-                    <th className="py-2.5 px-2 font-medium">NCM</th>
-                    <th className="py-2.5 px-2 font-medium">PEP Project</th>
-                    <th className="py-2.5 px-2 font-medium">Supplier</th>
-                    <th className="py-2.5 px-2 font-medium text-right">Open Qty</th>
-                    <th className="py-2.5 px-2 font-medium">EINDT / Delay</th>
-                    <th className="py-2.5 px-2 font-medium">Status</th>
+                    <th className="py-2.5 px-2 font-medium">{tr.executive.colPoRef}</th>
+                    <th className="py-2.5 px-2 font-medium">{tr.executive.colMaterialDesc}</th>
+                    <th className="py-2.5 px-2 font-medium">{tr.executive.colNcm}</th>
+                    <th className="py-2.5 px-2 font-medium">{tr.executive.colPepProject}</th>
+                    <th className="py-2.5 px-2 font-medium">{tr.executive.colSupplier}</th>
+                    <th className="py-2.5 px-2 font-medium text-right">{tr.executive.colOpenQty}</th>
+                    <th className="py-2.5 px-2 font-medium">{tr.executive.colEindtDelay}</th>
+                    <th className="py-2.5 px-2 font-medium">{tr.executive.colStatus}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800/70">
@@ -734,7 +789,7 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
                             {item.ULTIMO_PROCESSO_IMPORTACAO}
                           </button>
                         ) : (
-                          <span className="text-[11px] text-slate-400">Sem embarque</span>
+                          <span className="text-[11px] text-slate-400">{tr.common.noShipment}</span>
                         )}
                       </td>
                       <td className="py-2.5 px-2 max-w-[140px]">
@@ -749,7 +804,7 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
                         <span className="text-slate-700 dark:text-slate-300">{item.FUP_NCMS}</span>
                         {isDrawbackExpectedNcm(item.FUP_NCMS) && !item.FUP_ATO_CONCESSORIO && (
                           <span
-                            title="NCM eligible for Drawback but missing Ato Concessório in SAP"
+                            title={tr.executive.drawbackMissingTooltip}
                             className="ml-1 inline-flex items-center text-amber-600 dark:text-amber-400"
                           >
                             <AlertTriangle className="w-3.5 h-3.5" />
@@ -771,13 +826,13 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
                         </div>
                         {item.DIAS_ATRASO_ENTREGA > 0 && (
                           <div className="text-[11px] text-rose-600 dark:text-rose-400 font-semibold">
-                            +{item.DIAS_ATRASO_ENTREGA}d atraso
+                            {fmt(tr.executive.delayDays, { days: item.DIAS_ATRASO_ENTREGA })}
                           </div>
                         )}
                       </td>
                       <td className="py-2.5 px-2 whitespace-nowrap">
                         <StatusBadge
-                          label={item.STATUS_PRAZO_ENTREGA}
+                          label={translateDeliveryStatus(item.STATUS_PRAZO_ENTREGA, lang)}
                           tone={getDeliveryStatusTone(item.STATUS_PRAZO_ENTREGA)}
                         />
                       </td>
@@ -793,10 +848,10 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
         <div className="xl:col-span-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 flex flex-col">
           <div className="mb-3">
             <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
-              Pending Volume by PO
+              {tr.executive.pendingVolTitle}
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Rose bars = past EINDT
+              {tr.executive.pendingVolSubtitle}
             </p>
           </div>
           <div className="flex-1 min-h-[240px] text-slate-700 dark:text-slate-200">
@@ -822,7 +877,7 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
                   itemStyle={CHART_TOOLTIP_ITEM_STYLE}
                   labelStyle={CHART_TOOLTIP_LABEL_STYLE}
                 />
-                <Bar dataKey="pending" name="Open Qty" radius={[4, 4, 0, 0]}>
+                <Bar dataKey="pending" name={tr.executive.colOpenQty} radius={[4, 4, 0, 0]}>
                   {openPoChartData.map((entry, idx) => (
                     <Cell key={idx} fill={entry.delayed ? '#f43f5e' : '#06b6d4'} />
                   ))}
@@ -848,10 +903,10 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
           <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
             <div>
               <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
-                NCM & Drawback Ato Concessório Control
+                {tr.executive.ncmControlTitle}
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Click any NCM row to filter · Alerts flag eligible NCMs missing AC in SAP
+                {tr.executive.ncmControlSubtitle}
               </p>
             </div>
           </div>
@@ -859,18 +914,18 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
             <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="bg-slate-50 dark:bg-slate-950/60 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800">
-                  <th className="py-2 px-3 font-medium">NCM</th>
-                  <th className="py-2 px-3 font-medium text-right">Items</th>
-                  <th className="py-2 px-3 font-medium text-right">Open Qty</th>
-                  <th className="py-2 px-3 font-medium text-right">Order Value</th>
-                  <th className="py-2 px-3 font-medium">Ato Concessório / Alert</th>
+                  <th className="py-2 px-3 font-medium">{tr.executive.colNcm}</th>
+                  <th className="py-2 px-3 font-medium text-right">{tr.executive.colItems}</th>
+                  <th className="py-2 px-3 font-medium text-right">{tr.executive.colOpenQty}</th>
+                  <th className="py-2 px-3 font-medium text-right">{tr.executive.colOrderValue}</th>
+                  <th className="py-2 px-3 font-medium">{tr.executive.colAcAlert}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800/70">
                 {kpis.ncmSummary.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="py-8 px-3 text-center text-xs text-slate-500 dark:text-slate-400">
-                      No NCM records match the active filters.
+                      {tr.executive.noNcmRecords}
                     </td>
                   </tr>
                 ) : (
@@ -890,10 +945,10 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
                       >
                         <td className="py-2.5 px-3 font-mono font-semibold text-slate-900 dark:text-slate-100">
                           <div className="flex items-center gap-2">
-                            <span>{row.ncm}</span>
+                            <span>{row.ncm === 'SEM NCM' ? tr.app.noNcm : row.ncm}</span>
                             {isActiveNcm && (
                               <span className="text-[10px] font-sans font-medium px-1.5 py-0.5 rounded bg-cyan-600 text-white">
-                                Filtered · Click to clear
+                                {tr.executive.filteredClickClear}
                               </span>
                             )}
                           </div>
@@ -913,9 +968,9 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
                               AC {row.acNumbers.join(', ')}
                             </span>
                           ) : row.missingAcAlert ? (
-                            <StatusBadge label="MISSING AC IN SAP" tone="amber" />
+                            <StatusBadge label={tr.executive.missingAcBadge} tone="amber" />
                           ) : (
-                            <span className="text-slate-400">Rec. Integral</span>
+                            <span className="text-slate-400">{tr.executive.fullTaxLabel}</span>
                           )}
                         </td>
                       </tr>
@@ -932,21 +987,21 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
           <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
-                Project / Elemento PEP Progress Tracker
+                {tr.executive.pepTrackerTitle}
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Received in Plant 0003 vs. In-Transit (MFX Ref) vs. Pending Shipment
+                {tr.executive.pepTrackerSubtitle}
               </p>
             </div>
             <div className="flex items-center gap-3 text-[11px] text-slate-500 dark:text-slate-400 whitespace-nowrap shrink-0">
               <span className="flex items-center gap-1 whitespace-nowrap">
-                <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500 inline-block shrink-0" /> Plant 0003
+                <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500 inline-block shrink-0" /> {tr.executive.legendPlant}
               </span>
               <span className="flex items-center gap-1 whitespace-nowrap">
-                <span className="w-2.5 h-2.5 rounded-sm bg-cyan-500 inline-block shrink-0" /> In Transit
+                <span className="w-2.5 h-2.5 rounded-sm bg-cyan-500 inline-block shrink-0" /> {tr.executive.legendInTransit}
               </span>
               <span className="flex items-center gap-1 whitespace-nowrap">
-                <span className="w-2.5 h-2.5 rounded-sm bg-slate-300 dark:bg-slate-700 inline-block shrink-0" /> Open PO
+                <span className="w-2.5 h-2.5 rounded-sm bg-slate-300 dark:bg-slate-700 inline-block shrink-0" /> {tr.executive.legendOpenPo}
               </span>
             </div>
           </div>
@@ -954,7 +1009,7 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
           <div className="space-y-4">
             {kpis.pepProgress.length === 0 ? (
               <div className="py-8 text-center text-xs text-slate-500 dark:text-slate-400">
-                No PEP projects match the active filters.
+                {tr.executive.noPepProjects}
               </div>
             ) : (
               kpis.pepProgress.map((pep, idx) => (
@@ -965,26 +1020,32 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
                       <span className="font-mono text-[11px] text-slate-400">({pep.pepCode})</span>
                     </div>
                     <div className="font-mono tabular-nums text-slate-600 dark:text-slate-300 whitespace-nowrap">
-                      {pep.pctReceived}% rec · {formatCurrency(pep.totalValueBrl, 'BRL')}
+                      {fmt(tr.executive.pctRec, {
+                        pct: pep.pctReceived,
+                        val: formatCurrency(pep.totalValueBrl, 'BRL'),
+                      })}
                     </div>
                   </div>
                   <div className="h-2.5 w-full rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden flex">
                     <div
                       style={{ width: `${pep.pctReceived}%` }}
                       className="bg-emerald-500 h-full transition-all"
-                      title={`Received: ${formatNumber(pep.receivedQty, 0)}`}
+                      title={fmt(tr.executive.receivedTooltip, { qty: formatNumber(pep.receivedQty, 0) })}
                     />
                     <div
                       style={{ width: `${pep.pctInTransit}%` }}
                       className="bg-cyan-500 h-full transition-all"
-                      title={`In Transit: ${formatNumber(pep.inTransitQty, 0)}`}
+                      title={fmt(tr.executive.inTransitTooltip, { qty: formatNumber(pep.inTransitQty, 0) })}
                     />
                   </div>
                   <div className="flex justify-between text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400">
-                    <span>Ordered: {formatNumber(pep.totalOrdered, 0)}</span>
+                    <span>{fmt(tr.executive.orderedQty, { qty: formatNumber(pep.totalOrdered, 0) })}</span>
                     <span>
-                      Rec: {formatNumber(pep.receivedQty, 0)} · Transit: {formatNumber(pep.inTransitQty, 0)} · Pending:{' '}
-                      {formatNumber(pep.pendingShipmentQty, 0)}
+                      {fmt(tr.executive.pepProgressDetail, {
+                        rec: formatNumber(pep.receivedQty, 0),
+                        transit: formatNumber(pep.inTransitQty, 0),
+                        pending: formatNumber(pep.pendingShipmentQty, 0),
+                      })}
                     </span>
                   </div>
                 </div>

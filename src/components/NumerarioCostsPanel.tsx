@@ -45,6 +45,8 @@ import {
   NumerarioDetailDrawer,
   REGIME_BADGE,
 } from './NumerarioDetailDrawer';
+import { useI18n } from '../i18n/I18nContext';
+import { fmt } from '../i18n/translations';
 
 interface NumerarioCostsPanelProps {
   items: FupItemRow[];
@@ -61,6 +63,7 @@ export const NumerarioCostsPanel: React.FC<NumerarioCostsPanelProps> = ({
   onSaveNumerarioOverride,
   onSelectProcess,
 }) => {
+  const { tr } = useI18n();
   const [includeOpenPos, setIncludeOpenPos] = useState(true);
   const [regimeFilter, setRegimeFilter] = useState<'ALL' | NumerarioTaxRegime>('ALL');
   const [sourceFilter, setSourceFilter] = useState<'ALL' | NumerarioSourceType>('ALL');
@@ -133,6 +136,15 @@ export const NumerarioCostsPanel: React.FC<NumerarioCostsPanelProps> = ({
     [analysis.rows, selectedLineId]
   );
 
+  const localizedTaxBreakdown = useMemo(
+    () =>
+      analysis.taxBreakdownChart.map((d) => ({
+        ...d,
+        name: tr.numerario.chartKeys[d.key as keyof typeof tr.numerario.chartKeys] || d.name,
+      })),
+    [analysis.taxBreakdownChart, tr]
+  );
+
   const exportPayload = useMemo(
     () => ({
       ...analysis,
@@ -147,39 +159,39 @@ export const NumerarioCostsPanel: React.FC<NumerarioCostsPanelProps> = ({
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4">
           <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-            <span>Total Expected Numerário</span>
+            <span>{tr.numerario.kpiTotalTitle}</span>
             <Calculator className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
           </div>
           <div className="mt-2 text-2xl font-bold font-mono tabular-nums text-slate-900 dark:text-white">
             {formatCurrency(analysis.totals.totalNumerarioBrl, 'BRL')}
           </div>
           <div className="mt-2 flex items-center justify-between text-xs font-mono tabular-nums text-slate-500 dark:text-slate-400">
-            <span>Taxes: {formatCurrency(analysis.totals.totalTaxesBrl, 'BRL')}</span>
-            <span>{analysis.counts.totalRows} items</span>
+            <span>{fmt(tr.numerario.kpiTaxesVal, { val: formatCurrency(analysis.totals.totalTaxesBrl, 'BRL') })}</span>
+            <span>{fmt(tr.numerario.kpiItemsCount, { count: analysis.counts.totalRows })}</span>
           </div>
         </div>
 
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4">
           <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-            <span>Customs Taxes (DI / DUIMP)</span>
+            <span>{tr.numerario.kpiCustomsTitle}</span>
             <Landmark className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
           </div>
           <div className="mt-2 text-2xl font-bold font-mono tabular-nums text-cyan-700 dark:text-cyan-300">
             {formatCurrency(analysis.totals.totalTaxesBrl, 'BRL')}
           </div>
           <div className="mt-2 flex items-center justify-between text-xs font-mono tabular-nums text-slate-500 dark:text-slate-400">
-            <span>{analysis.counts.sapDiCount} SAP DI</span>
+            <span>{fmt(tr.numerario.kpiSapDi, { count: analysis.counts.sapDiCount })}</span>
             <span>
               {analysis.counts.simulatedCount > 0
-                ? `${analysis.counts.simulatedCount} Sim.`
-                : `${analysis.counts.preDiCount} Pre-DI`}
+                ? fmt(tr.numerario.kpiSimCount, { count: analysis.counts.simulatedCount })
+                : fmt(tr.numerario.kpiPreDiCount, { count: analysis.counts.preDiCount })}
             </span>
           </div>
         </div>
 
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4">
           <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-            <span>Finance Cash Call (Saldo)</span>
+            <span>{tr.numerario.kpiSaldoTitle}</span>
             <DollarSign className="w-4 h-4 text-amber-600 dark:text-amber-400" />
           </div>
           <div
@@ -192,8 +204,8 @@ export const NumerarioCostsPanel: React.FC<NumerarioCostsPanelProps> = ({
             {formatCurrency(analysis.totals.saldoFinanceiroBrl, 'BRL')}
           </div>
           <div className="mt-2 flex items-center justify-between text-xs font-mono tabular-nums text-slate-500 dark:text-slate-400">
-            <span>Adiantado: {formatCurrency(analysis.totals.valorAdiantadoBrl, 'BRL')}</span>
-            <span>{analysis.counts.pendingCashCallCount} open</span>
+            <span>{fmt(tr.numerario.kpiAdtVal, { val: formatCurrency(analysis.totals.valorAdiantadoBrl, 'BRL') })}</span>
+            <span>{fmt(tr.numerario.kpiOpenCalls, { count: analysis.counts.pendingCashCallCount })}</span>
           </div>
         </div>
 
@@ -201,8 +213,8 @@ export const NumerarioCostsPanel: React.FC<NumerarioCostsPanelProps> = ({
           <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
             <span>
               {analysis.totals.drawbackSavedBrl > 0
-                ? 'Drawback Tax Avoidance (Sim)'
-                : 'Drawback AC Coverage (VA)'}
+                ? tr.numerario.kpiDbkSimTitle
+                : tr.numerario.kpiDbkCoverageTitle}
             </span>
             <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
           </div>
@@ -216,8 +228,10 @@ export const NumerarioCostsPanel: React.FC<NumerarioCostsPanelProps> = ({
           </div>
           <div className="mt-2 text-xs font-mono tabular-nums text-slate-500 dark:text-slate-400 truncate">
             {analysis.totals.potentialSavingsIfAcLinkedBrl > 0
-              ? `+${formatCurrency(analysis.totals.potentialSavingsIfAcLinkedBrl, 'BRL')} avoidable w/ AC`
-              : `${analysis.counts.drawbackSuspCount} processes under AC`}
+              ? fmt(tr.numerario.kpiAvoidableAc, {
+                  val: formatCurrency(analysis.totals.potentialSavingsIfAcLinkedBrl, 'BRL'),
+                })
+              : fmt(tr.numerario.kpiUnderAcCount, { count: analysis.counts.drawbackSuspCount })}
           </div>
         </div>
       </div>
@@ -228,10 +242,10 @@ export const NumerarioCostsPanel: React.FC<NumerarioCostsPanelProps> = ({
           <div className="flex items-center justify-between gap-2 mb-3">
             <div>
               <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
-                Numerário Composition by Tax &amp; Expense (BRL)
+                {tr.numerario.chartCompTitle}
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                II, IPI, PIS, COFINS, ICMS, Siscomex/AFRMM &amp; Port/Brokerage totals
+                {tr.numerario.chartCompSubtitle}
               </p>
             </div>
             <span className="text-xs font-mono tabular-nums text-slate-500 dark:text-slate-400">
@@ -241,7 +255,7 @@ export const NumerarioCostsPanel: React.FC<NumerarioCostsPanelProps> = ({
           <div className="h-[235px] text-slate-700 dark:text-slate-200">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
-                data={analysis.taxBreakdownChart}
+                data={localizedTaxBreakdown}
                 layout="vertical"
                 margin={{ top: 4, right: 118, left: 6, bottom: 4 }}
               >
@@ -267,8 +281,8 @@ export const NumerarioCostsPanel: React.FC<NumerarioCostsPanelProps> = ({
                   itemStyle={CHART_TOOLTIP_ITEM_STYLE}
                   labelStyle={CHART_TOOLTIP_LABEL_STYLE}
                 />
-                <Bar dataKey="valueBrl" name="Cost (BRL)" radius={[0, 4, 4, 0]}>
-                  {analysis.taxBreakdownChart.map((entry) => (
+                <Bar dataKey="valueBrl" name={tr.numerario.costSeries} radius={[0, 4, 4, 0]}>
+                  {localizedTaxBreakdown.map((entry) => (
                     <Cell key={entry.key} fill={entry.color} />
                   ))}
                   <LabelList
@@ -289,14 +303,14 @@ export const NumerarioCostsPanel: React.FC<NumerarioCostsPanelProps> = ({
           <div className="flex items-center justify-between gap-2 mb-3">
             <div>
               <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
-                Numerário Requirement vs. Advance Paid per Process (BRL)
+                {tr.numerario.chartReqTitle}
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Taxes + Port/Brokerage compared against Valor Adiantado (VALOR_ADT)
+                {tr.numerario.chartReqSubtitle}
               </p>
             </div>
             <span className="text-xs font-mono tabular-nums text-amber-600 dark:text-amber-300 whitespace-nowrap shrink-0">
-              {analysis.counts.pendingCashCallCount} pending transfer
+              {fmt(tr.numerario.pendingTransfer, { count: analysis.counts.pendingCashCallCount })}
             </span>
           </div>
           <div className="h-[235px] text-slate-700 dark:text-slate-200">
@@ -328,14 +342,14 @@ export const NumerarioCostsPanel: React.FC<NumerarioCostsPanelProps> = ({
                 <Legend wrapperStyle={{ fontSize: '11px' }} />
                 <Bar
                   dataKey="taxes"
-                  name="Customs Taxes"
+                  name={tr.numerario.seriesTaxes}
                   stackId="req"
                   fill="#06b6d4"
                   radius={[0, 0, 0, 0]}
                 />
                 <Bar
                   dataKey="clearance"
-                  name="Port & Broker"
+                  name={tr.numerario.seriesPortBroker}
                   stackId="req"
                   fill="#f59e0b"
                   radius={[4, 4, 0, 0]}
@@ -351,7 +365,7 @@ export const NumerarioCostsPanel: React.FC<NumerarioCostsPanelProps> = ({
                 </Bar>
                 <Bar
                   dataKey="adiantado"
-                  name="Advance Paid"
+                  name={tr.numerario.seriesAdvancePaid}
                   fill="#10b981"
                   radius={[4, 4, 0, 0]}
                 >
@@ -383,7 +397,7 @@ export const NumerarioCostsPanel: React.FC<NumerarioCostsPanelProps> = ({
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
-              MFX Shipments ({processes.length})
+              {fmt(tr.numerario.mfxShipmentsBtn, { count: processes.length })}
             </button>
             <button
               type="button"
@@ -394,41 +408,41 @@ export const NumerarioCostsPanel: React.FC<NumerarioCostsPanelProps> = ({
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
-              Shipments + Open POs
+              {tr.numerario.shipmentsOpenPosBtn}
             </button>
           </div>
 
           <select
-            aria-label="Filter by Tax Regime"
+            aria-label={tr.numerario.regimeFilterAria}
             value={regimeFilter}
             onChange={(e) => setRegimeFilter(e.target.value as 'ALL' | NumerarioTaxRegime)}
             className="px-2 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
           >
-            <option value="ALL">All Tax Regimes</option>
-            <option value="RECOLHIMENTO_INTEGRAL">Recolhimento Integral</option>
-            <option value="AGUARDANDO_AC">Aguardando AC (Pre-DI)</option>
-            <option value="DRAWBACK_SUSP">Drawback Suspensão</option>
+            <option value="ALL">{tr.numerario.allRegimes}</option>
+            <option value="RECOLHIMENTO_INTEGRAL">{tr.numerario.regimes.RECOLHIMENTO_INTEGRAL}</option>
+            <option value="AGUARDANDO_AC">{tr.numerario.regimes.AGUARDANDO_AC}</option>
+            <option value="DRAWBACK_SUSP">{tr.numerario.regimes.DRAWBACK_SUSP}</option>
           </select>
 
           <select
-            aria-label="Filter by Calculation Basis"
+            aria-label={tr.numerario.sourceFilterAria}
             value={sourceFilter}
             onChange={(e) => setSourceFilter(e.target.value as 'ALL' | NumerarioSourceType)}
             className="px-2 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
           >
-            <option value="ALL">All Calc Bases</option>
-            <option value="SAP_DI">SAP Recorded DI</option>
-            <option value="DRAWBACK_SUSPENDED">Drawback AC (SAP)</option>
-            <option value="PRE_DI_SAP">Pre-DI (Uploaded SAP)</option>
-            <option value="SIMULATED">Simulated (Manual)</option>
+            <option value="ALL">{tr.numerario.allBases}</option>
+            <option value="SAP_DI">{tr.numerario.sources.SAP_DI}</option>
+            <option value="DRAWBACK_SUSPENDED">{tr.numerario.sources.DRAWBACK_SUSPENDED}</option>
+            <option value="PRE_DI_SAP">{tr.numerario.sources.PRE_DI_SAP}</option>
+            <option value="SIMULATED">{tr.numerario.sources.SIMULATED}</option>
           </select>
 
           <div className="relative">
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
-              aria-label="Search Numerario processes"
-              placeholder="MFX, PO, DI, NCM..."
+              aria-label={tr.numerario.searchAria}
+              placeholder={tr.numerario.searchPlaceholder}
               value={localSearch}
               onChange={(e) => setLocalSearch(e.target.value)}
               className="pl-8 pr-2.5 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white w-44"
@@ -444,7 +458,7 @@ export const NumerarioCostsPanel: React.FC<NumerarioCostsPanelProps> = ({
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-45 disabled:cursor-not-allowed text-white transition-colors whitespace-nowrap"
           >
             <Download className="w-3.5 h-3.5" />
-            Export Numerário.xlsx
+            {tr.numerario.exportXlsx}
           </button>
           <button
             type="button"
@@ -453,7 +467,7 @@ export const NumerarioCostsPanel: React.FC<NumerarioCostsPanelProps> = ({
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-45 disabled:cursor-not-allowed text-white transition-colors whitespace-nowrap"
           >
             <FileText className="w-3.5 h-3.5" />
-            Finance PDF
+            {tr.numerario.exportPdf}
           </button>
         </div>
       </div>
@@ -463,15 +477,14 @@ export const NumerarioCostsPanel: React.FC<NumerarioCostsPanelProps> = ({
         <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
           <div>
             <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
-              Customs Declaration Numerário Cost Schedule ({filteredRows.length})
+              {fmt(tr.numerario.tableTitle, { count: filteredRows.length })}
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Exact uploaded SAP/DI II, IPI, PIS, COFINS, ICMS, Siscomex, AFRMM &amp; port clearance
-              costs for Finance · Click any row to inspect or run a manual rate simulation
+              {tr.numerario.tableSubtitle}
             </p>
           </div>
           <span className="text-xs font-mono tabular-nums text-slate-500 dark:text-slate-400">
-            Total Saldo: {formatCurrency(filteredTotals.saldo, 'BRL')}
+            {fmt(tr.numerario.totalSaldo, { val: formatCurrency(filteredTotals.saldo, 'BRL') })}
           </span>
         </div>
 
@@ -479,18 +492,18 @@ export const NumerarioCostsPanel: React.FC<NumerarioCostsPanelProps> = ({
           <table className="w-full text-left border-collapse text-[10.5px]">
             <thead>
               <tr className="bg-slate-50 dark:bg-slate-950/60 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800 whitespace-nowrap">
-                <th className="py-2 px-1.5 font-medium">Process / PO</th>
-                <th className="py-2 px-1.5 font-medium">Regime &amp; NCM</th>
-                <th className="py-2 px-1.5 font-medium text-right">VA (BRL)</th>
+                <th className="py-2 px-1.5 font-medium">{tr.numerario.colProcessPo}</th>
+                <th className="py-2 px-1.5 font-medium">{tr.numerario.colRegimeNcm}</th>
+                <th className="py-2 px-1.5 font-medium text-right">{tr.numerario.colVa}</th>
                 <th className="py-2 px-1 font-medium text-right">II</th>
                 <th className="py-2 px-1 font-medium text-right">IPI</th>
                 <th className="py-2 px-1 font-medium text-right">PIS</th>
                 <th className="py-2 px-1 font-medium text-right">COFINS</th>
                 <th className="py-2 px-1 font-medium text-right">ICMS</th>
-                <th className="py-2 px-1.5 font-medium text-right">Port &amp; Fees</th>
-                <th className="py-2 px-1.5 font-medium text-right">Numerário</th>
-                <th className="py-2 px-1.5 font-medium text-right">Adt / Saldo</th>
-                <th className="py-2 px-1 font-medium text-right" aria-label="Details" />
+                <th className="py-2 px-1.5 font-medium text-right">{tr.numerario.colPortFees}</th>
+                <th className="py-2 px-1.5 font-medium text-right">{tr.numerario.colNumerario}</th>
+                <th className="py-2 px-1.5 font-medium text-right">{tr.numerario.colAdtSaldo}</th>
+                <th className="py-2 px-1 font-medium text-right" aria-label={tr.common.action} />
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/70">
@@ -500,35 +513,16 @@ export const NumerarioCostsPanel: React.FC<NumerarioCostsPanelProps> = ({
                     colSpan={12}
                     className="py-10 text-center text-xs text-slate-500 dark:text-slate-400"
                   >
-                    No import processes or POs match the current Numerário filters.
+                    {tr.numerario.emptyTable}
                   </td>
                 </tr>
               ) : (
                 filteredRows.map((row) => {
                   const regimeMeta = REGIME_BADGE[row.taxRegime];
                   const finMeta = FINANCE_STATUS_BADGE[row.financeStatus];
-                  const regimeShort =
-                    row.taxRegime === 'DRAWBACK_SUSP'
-                      ? 'DBK Susp.'
-                      : row.taxRegime === 'AGUARDANDO_AC'
-                        ? 'Aguard. AC'
-                        : 'Rec. Integral';
-                  const finShort =
-                    row.financeStatus === 'REQUESTED'
-                      ? 'Req. Finance'
-                      : row.financeStatus === 'APPROVED'
-                        ? 'Approved'
-                        : row.financeStatus === 'PAID'
-                          ? 'Paid'
-                          : 'Pre-Req.';
-                  const basisShort =
-                    row.sourceType === 'SAP_DI'
-                      ? 'SAP DI'
-                      : row.sourceType === 'DRAWBACK_SUSPENDED'
-                        ? 'AC (SAP)'
-                        : row.sourceType === 'SIMULATED'
-                          ? 'Sim.'
-                          : 'Pre-DI';
+                  const regimeShort = tr.numerario.regimeShort[row.taxRegime];
+                  const finShort = tr.numerario.finShort[row.financeStatus];
+                  const basisShort = tr.numerario.sourceShort[row.sourceType];
                   const portAndFees =
                     row.totalClearanceExpensesBrl + row.siscomexBrl + row.afrmmBrl;
                   return (
@@ -657,8 +651,8 @@ export const NumerarioCostsPanel: React.FC<NumerarioCostsPanelProps> = ({
                         <button
                           type="button"
                           onClick={() => setSelectedLineId(row.id)}
-                          aria-label={`Details for ${row.id}`}
-                          title="Simulate taxes & inspect Numerário"
+                          aria-label={fmt(tr.numerario.detailsAria, { id: row.id })}
+                          title={tr.numerario.detailsTooltip}
                           className="inline-flex items-center justify-center p-1 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
                         >
                           <SlidersHorizontal className="w-3.5 h-3.5" />
@@ -673,7 +667,7 @@ export const NumerarioCostsPanel: React.FC<NumerarioCostsPanelProps> = ({
               <tfoot>
                 <tr className="bg-slate-50 dark:bg-slate-950/80 border-t-2 border-slate-200 dark:border-slate-700 font-bold font-mono tabular-nums text-slate-900 dark:text-white whitespace-nowrap">
                   <td className="py-2 px-1.5" colSpan={2}>
-                    TOTAL ({filteredRows.length})
+                    {fmt(tr.numerario.totalRow, { count: filteredRows.length })}
                   </td>
                   <td className="py-2 px-1.5 text-right">
                     {formatCurrency(filteredTotals.va, 'BRL')}

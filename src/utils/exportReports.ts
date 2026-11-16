@@ -8,6 +8,7 @@ import type {
   OrderStatusMatrixData,
   PartnerScorecard,
   ShipmentProcessRow,
+  ShipmentWorthinessAnalysisResult,
   SimilarMaterialGroup,
   SwotData,
 } from '../types/comex';
@@ -77,16 +78,16 @@ export function exportShipmentsWorkbook(processes: ShipmentProcessRow[]): void {
   XLSX.writeFile(wb, 'SHIPMENTS_COMEX_MFX.xlsx');
 }
 
-export function exportOrderStatusMatrix(
+export function buildOrderStatusMatrixAoa(
   matrix: OrderStatusMatrixData,
   qtdAcOverrides: Record<string, number>
-): void {
+): (string | number)[][] {
   const aoa: (string | number)[][] = [];
-  const colCount = 7 + matrix.columns.length + 1;
+  const colCount = 8 + matrix.columns.length + 1;
 
-  // Top 6 metadata header rows (Cols A-F blank, Col G labels, Cols H+ dynamic PO/BL, final col blank/QTD AC)
+  // Top 6 metadata header rows (Cols A-G blank, Col H labels, Cols I+ dynamic PO/BL, final col blank/QTD AC)
   const makeMetaRow = (label: string, getter: (c: typeof matrix.columns[0]) => string | number, lastCol = '') => [
-    '', '', '', '', '', '', label,
+    '', '', '', '', '', '', '', label,
     ...matrix.columns.map(getter),
     lastCol,
   ];
@@ -106,6 +107,7 @@ export function exportOrderStatusMatrix(
     'NCM',
     'UM',
     'Estoque',
+    'PEP',
     'TIPO',
     ...matrix.columns.map((c) => `${c.kind} ${c.number}`),
     'QTD AC',
@@ -125,6 +127,7 @@ export function exportOrderStatusMatrix(
         mat.ncm,
         mat.um,
         mat.estoque,
+        mat.elementoPep && mat.elementoPep !== '-' ? mat.elementoPep : '',
         mat.acNumber ? `AC ${mat.acNumber}` : '-',
         ...matrix.columns.map((c) => mat.quantities[c.key] || 0),
         qtdAc,
@@ -132,6 +135,14 @@ export function exportOrderStatusMatrix(
     }
   }
 
+  return aoa;
+}
+
+export function exportOrderStatusMatrix(
+  matrix: OrderStatusMatrixData,
+  qtdAcOverrides: Record<string, number>
+): void {
+  const aoa = buildOrderStatusMatrixAoa(matrix, qtdAcOverrides);
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Status dos Pedidos');
@@ -485,6 +496,119 @@ export function exportNumerarioPdf(analysis: NumerarioAnalysisResult): void {
 
   doc.save('MFX_Numerario_Costs_Finance.pdf');
 }
+
+export function exportWorthinessWorkbook(analysis: ShipmentWorthinessAnalysisResult): void {
+  const shipmentRows = analysis.rows.map((r) => ({
+    'Process / Ref': r.ref,
+    'PO Numbers': r.poList,
+    Exporter: r.exporter,
+    'Project / PEP': r.pepProject,
+    Modal: r.modal,
+    Incoterm: r.incoterm,
+    Status: r.status,
+    Channel: r.canal,
+    'Worthiness Verdict':
+      r.worthinessVerdict === 'NOT_WORTH_IT'
+        ? 'Cost Overrun (Review/Avoid)'
+        : r.worthinessVerdict === 'REVIEW'
+          ? 'Borderline / Review'
+          : 'Worth It / Efficient',
+    'Air Modal Verdict': r.airEvaluation.isAir ? r.airEvaluation.headline : r.modal,
+    'Order FOB (BRL)': r.fobBrl,
+    'Intl Freight (BRL)': r.intlFreightBrl,
+    'Freight % of FOB': r.freightPctOverFob,
+    'Storage & Capatazia (BRL)': Math.round((r.storageBrl + r.capataziaBrl) * 100) / 100,
+    'Storage Days': r.daysInPort,
+    'Storage Periods': r.periodos,
+    'Demurrage (BRL)': r.demurrageBrl,
+    'Customs Taxes SAP (BRL)': r.customsTaxesBrl,
+    'Total Logistics & Port (BRL)': r.totalLogisticsCostBrl,
+    'Logistics % of FOB': r.logisticsPctOverFob,
+    'Total Extra Cost (BRL)': r.totalExtraCostBrl,
+    'Extra Cost % of FOB': r.totalExtraPctOverFob,
+    'Total Landed Cost (BRL)': r.totalLandedBrl,
+    'Landed Multiplier (x)': r.landedMultiplier,
+    'Observed Excess Storage/Demurrage (BRL)': r.observedAvoidableWasteBrl,
+    'Key Verdict Reasons': r.worthinessReasons.join(' | '),
+    'SKU Trouble Signals': r.itemTroubleSummary.troubleSignals.join(' | ') || '-',
+    'Director Cost-Avoidance Actions':
+      r.recommendations.map((a) => `${a.title} (${a.detail})`).join(' || ') || '-',
+  }));
+
+  const troubleRows = analysis.materialTroubles.map((m) => ({
+    'Material Code': m.materialCode,
+    'Description (PT)': m.descPt,
+    'Description (EN)': m.descEn,
+    NCM: m.ncm,
+    'Primary Supplier': m.primarySupplier,
+    'Severity': m.severity,
+    'Total POs': m.orderCount,
+    'Late POs': m.lateOrderCount,
+    'Late Rate (%)': m.delayedRatePct,
+    'Max Delay (Days)': m.maxDelayDays,
+    'Air Shipments': m.airShipmentCount,
+    'Sea Shipments': m.seaShipmentCount,
+    'Missing AC Lines': m.missingAcCount,
+    'Plant 0003 Stock': m.stockPlant0003,
+    'Total Spend (BRL)': m.totalSpendBrl,
+    'Storage & Demurrage (BRL)': m.totalStorageAndDemurrageBrl,
+    'Trouble Signals': m.troubleSignals.join(' | ') || 'On Track',
+    'Recommended Fix for Future Orders': m.recommendedFutureFix,
+  }));
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(shipmentRows), 'Shipment ROI Audit');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(troubleRows), 'Recurring SKU Troubles');
+  XLSX.writeFile(wb, 'MFX_Shipment_Worthiness_Director_Audit.xlsx');
+}
+
+export function exportWorthinessPdf(analysis: ShipmentWorthinessAnalysisResult): void {
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+  doc.setFontSize(14);
+  doc.text('MFX Intelligent Comex — Director Shipment ROI & Cost-Benefit Audit', 40, 38);
+  doc.setFontSize(9);
+  doc.setTextColor(95);
+  doc.text(
+    `Generated ${new Date().toLocaleDateString('pt-BR')}  ·  Shipments: ${analysis.summary.totalShipments}  |  Order FOB: ${formatCurrency(analysis.summary.totalFobBrl, 'BRL')}  |  Total Extra Cost: ${formatCurrency(analysis.summary.totalExtraCostBrl, 'BRL')} (${analysis.summary.weightedExtraPctOverFob}%)  |  Overruns: ${analysis.summary.notWorthItCount}`,
+    40,
+    54
+  );
+
+  autoTable(doc, {
+    startY: 70,
+    head: [
+      [
+        'Ref / PO',
+        'Modal / Air Audit',
+        'Order FOB',
+        'Logistics',
+        'Taxes (SAP)',
+        'Extra / FOB %',
+        'Verdict',
+        'Key Reasons & Prevention',
+      ],
+    ],
+    body: analysis.rows.map((r) => [
+      `${r.ref}\n${r.exporter}`,
+      `${r.modal}\n${r.airEvaluation.isAir ? r.airEvaluation.headline : `${r.daysInPort}d (${r.periodos}p)`}`,
+      formatCurrency(r.fobBrl, 'BRL'),
+      formatCurrency(r.totalLogisticsCostBrl, 'BRL'),
+      formatCurrency(r.customsTaxesBrl, 'BRL'),
+      `+${r.totalExtraPctOverFob}%\n(Log ${r.logisticsPctOverFob}%)`,
+      r.worthinessVerdict === 'NOT_WORTH_IT'
+        ? 'NOT WORTH IT'
+        : r.worthinessVerdict === 'REVIEW'
+          ? 'REVIEW'
+          : 'WORTH IT',
+      `${r.worthinessReasons.join('; ')}${r.recommendations[0] ? `\nFix: ${r.recommendations[0].title}` : ''}`,
+    ]),
+    styles: { fontSize: 7, cellPadding: 3.5 },
+    headStyles: { fillColor: [15, 23, 42], textColor: 255 },
+  });
+
+  doc.save('MFX_Shipment_Worthiness_Director_Audit.pdf');
+}
+
 
 
 

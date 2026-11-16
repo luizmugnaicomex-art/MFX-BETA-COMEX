@@ -18,6 +18,9 @@ import {
   resolveDefaultNcmTaxRates,
 } from '../utils/comexEngine';
 import { formatCurrency } from '../utils/sapParser';
+import { useI18n } from '../i18n/I18nContext';
+import { fmt } from '../i18n/translations';
+import { translateModal } from '../i18n/helpers';
 import { StatusBadge } from './StatusBadge';
 
 export const REGIME_BADGE: Record<
@@ -64,6 +67,7 @@ export const NumerarioDetailDrawer: React.FC<NumerarioDetailDrawerProps> = ({
   onSaveOverride,
   onSelectProcess,
 }) => {
+  const { lang, tr } = useI18n();
   const [regimeDraft, setRegimeDraft] = useState<'AUTO' | 'RECOLHIMENTO_INTEGRAL' | 'DRAWBACK_SUSP'>('AUTO');
   const [iiRateDraft, setIiRateDraft] = useState('12');
   const [ipiRateDraft, setIpiRateDraft] = useState('5');
@@ -110,6 +114,9 @@ export const NumerarioDetailDrawer: React.FC<NumerarioDetailDrawerProps> = ({
   const regimeMeta = REGIME_BADGE[line.taxRegime];
   const sourceMeta = SOURCE_BADGE[line.sourceType];
   const finMeta = FINANCE_STATUS_BADGE[line.financeStatus];
+  const regimeLabel = tr.numerario.regimes[line.taxRegime];
+  const sourceLabel = tr.numerario.sources[line.sourceType];
+  const finLabel = tr.numerario.finStatus[line.financeStatus];
 
   const isSimulatedDbk =
     regimeDraft === 'DRAWBACK_SUSP' ||
@@ -161,7 +168,7 @@ export const NumerarioDetailDrawer: React.FC<NumerarioDetailDrawerProps> = ({
       onClick={onClose}
       role="dialog"
       aria-modal="true"
-      aria-label={`Numerario cost breakdown for ${line.id}`}
+      aria-label={fmt(tr.numerario.drawer.ariaLabel, { id: line.id })}
     >
       <div
         className="w-full max-w-4xl bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 h-full overflow-y-auto p-6 shadow-2xl space-y-6"
@@ -175,9 +182,9 @@ export const NumerarioDetailDrawer: React.FC<NumerarioDetailDrawerProps> = ({
                 <Calculator className="w-3.5 h-3.5" />
                 {line.id}
               </span>
-              <StatusBadge label={regimeMeta.label} tone={regimeMeta.tone} />
-              <StatusBadge label={sourceMeta.label} tone={sourceMeta.tone} />
-              <StatusBadge label={finMeta.label} tone={finMeta.tone} />
+              <StatusBadge label={regimeLabel} tone={regimeMeta.tone} />
+              <StatusBadge label={sourceLabel} tone={sourceMeta.tone} />
+              <StatusBadge label={finLabel} tone={finMeta.tone} />
             </div>
             <h3 className="text-base font-bold text-slate-900 dark:text-white">
               {line.supplier} · {line.pepProject}
@@ -188,7 +195,7 @@ export const NumerarioDetailDrawer: React.FC<NumerarioDetailDrawerProps> = ({
               <span>NCM: {line.ncms}</span>
               {line.acNumber !== '-' && <span>AC: {line.acNumber}</span>}
               <span>
-                {line.modal} · {line.incoterm} · PTAX {line.ptax.toFixed(2)}
+                {translateModal(line.modal, lang)} · {line.incoterm} · PTAX {line.ptax.toFixed(2)}
               </span>
             </div>
           </div>
@@ -201,16 +208,16 @@ export const NumerarioDetailDrawer: React.FC<NumerarioDetailDrawerProps> = ({
                   onClose();
                   onSelectProcess(line.processRef);
                 }}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 whitespace-nowrap"
               >
-                Open Shipment
+                {tr.numerario.drawer.openShipment}
                 <ExternalLink className="w-3 h-3" />
               </button>
             )}
             <button
               type="button"
               onClick={onClose}
-              aria-label="Close Numerario detail drawer"
+              aria-label={tr.numerario.drawer.closeAria}
               className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
             >
               <X className="w-4 h-4" />
@@ -221,7 +228,7 @@ export const NumerarioDetailDrawer: React.FC<NumerarioDetailDrawerProps> = ({
         {/* Summary KPI Strip */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 p-3">
-            <div className="text-[11px] text-slate-500 dark:text-slate-400">Valor Aduaneiro (CIF)</div>
+            <div className="text-[11px] text-slate-500 dark:text-slate-400">{tr.numerario.drawer.vaLabel}</div>
             <div className="mt-1 text-sm font-bold font-mono tabular-nums text-slate-900 dark:text-white">
               {formatCurrency(line.valorAduaneiroBrl, 'BRL')}
             </div>
@@ -231,27 +238,27 @@ export const NumerarioDetailDrawer: React.FC<NumerarioDetailDrawerProps> = ({
           </div>
 
           <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 p-3">
-            <div className="text-[11px] text-slate-500 dark:text-slate-400">Customs Taxes (DI)</div>
+            <div className="text-[11px] text-slate-500 dark:text-slate-400">{tr.numerario.drawer.taxesLabel}</div>
             <div className="mt-1 text-sm font-bold font-mono tabular-nums text-cyan-700 dark:text-cyan-300">
               {formatCurrency(line.totalTaxesBrl, 'BRL')}
             </div>
             <div className="mt-0.5 text-[11px] font-mono tabular-nums text-slate-500">
-              II+IPI+PIS+COFINS+ICMS
+              {tr.numerario.drawer.taxesFormula}
             </div>
           </div>
 
           <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 p-3">
-            <div className="text-[11px] text-slate-500 dark:text-slate-400">Total Expected Numerário</div>
+            <div className="text-[11px] text-slate-500 dark:text-slate-400">{tr.numerario.drawer.totalNumerarioLabel}</div>
             <div className="mt-1 text-sm font-bold font-mono tabular-nums text-slate-900 dark:text-white">
               {formatCurrency(line.totalNumerarioBrl, 'BRL')}
             </div>
             <div className="mt-0.5 text-[11px] font-mono tabular-nums text-slate-500">
-              Adiantado: {formatCurrency(line.valorAdiantadoBrl, 'BRL')}
+              {fmt(tr.numerario.drawer.advancedSub, { val: formatCurrency(line.valorAdiantadoBrl, 'BRL') })}
             </div>
           </div>
 
           <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 p-3">
-            <div className="text-[11px] text-slate-500 dark:text-slate-400">Saldo Financeiro</div>
+            <div className="text-[11px] text-slate-500 dark:text-slate-400">{tr.numerario.drawer.saldoLabel}</div>
             <div
               className={`mt-1 text-sm font-bold font-mono tabular-nums ${
                 line.saldoFinanceiroBrl > 50
@@ -262,7 +269,9 @@ export const NumerarioDetailDrawer: React.FC<NumerarioDetailDrawerProps> = ({
               {formatCurrency(line.saldoFinanceiroBrl, 'BRL')}
             </div>
             <div className="mt-0.5 text-[11px] text-slate-500">
-              {line.saldoFinanceiroBrl > 50 ? 'Cash transfer needed' : 'Covered / Credit'}
+              {line.saldoFinanceiroBrl > 50
+                ? tr.numerario.drawer.transferNeeded
+                : tr.numerario.drawer.coveredCredit}
             </div>
           </div>
         </div>
@@ -272,23 +281,12 @@ export const NumerarioDetailDrawer: React.FC<NumerarioDetailDrawerProps> = ({
           <div className="flex items-start gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-800 dark:text-amber-200">
             <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
             <div>
-              {line.potentialDrawbackSavingsBrl > 0 ? (
-                <>
-                  <span className="font-semibold">Ato Concessório Pending Pre-DI:</span> Finance
-                  tax exposure is{' '}
-                  <span className="font-mono font-semibold">
-                    {formatCurrency(line.potentialDrawbackSavingsBrl, 'BRL')}
-                  </span>{' '}
-                  under Recolhimento Integral. Linking a valid Drawback AC before DI registration
-                  suspends these taxes.
-                </>
-              ) : (
-                <>
-                  <span className="font-semibold">Ato Concessório Pending Pre-DI:</span> This
-                  process has no linked Drawback AC in SAP yet (uploaded tax values are currently
-                  R$ 0,00). Use the simulator below only if you want to model what-if tax rates.
-                </>
-              )}
+              <span className="font-semibold">{tr.numerario.drawer.pendingAcAlertTitle}</span>{' '}
+              {line.potentialDrawbackSavingsBrl > 0
+                ? fmt(tr.numerario.drawer.pendingAcExposure, {
+                    val: formatCurrency(line.potentialDrawbackSavingsBrl, 'BRL'),
+                  })
+                : tr.numerario.drawer.pendingAcZeroNote}
             </div>
           </div>
         )}
@@ -297,13 +295,12 @@ export const NumerarioDetailDrawer: React.FC<NumerarioDetailDrawerProps> = ({
           <div className="flex items-start gap-2.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-xs text-emerald-800 dark:text-emerald-200">
             <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
             <div>
-              <span className="font-semibold">Drawback Suspensão Active (AC {line.acNumber}):</span>{' '}
-              Approximately{' '}
-              <span className="font-mono font-semibold">
-                {formatCurrency(line.potentialDrawbackSavingsBrl, 'BRL')}
+              <span className="font-semibold">
+                {fmt(tr.numerario.drawer.dbkActiveTitle, { ac: line.acNumber })}
               </span>{' '}
-              in II/IPI/PIS/COFINS/ICMS suspended. Only Taxa Siscomex and port/brokerage fees apply
-              to this Numerário.
+              {fmt(tr.numerario.drawer.dbkActiveBody, {
+                val: formatCurrency(line.potentialDrawbackSavingsBrl, 'BRL'),
+              })}
             </div>
           </div>
         )}
@@ -313,60 +310,60 @@ export const NumerarioDetailDrawer: React.FC<NumerarioDetailDrawerProps> = ({
           <div className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
             <div className="px-4 py-2.5 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60">
               <h4 className="text-xs font-semibold text-slate-900 dark:text-white">
-                Customs Declaration Tax Waterfall (DI / DUIMP)
+                {tr.numerario.drawer.taxWaterfallTitle}
               </h4>
             </div>
             <div className="p-4 space-y-2 text-xs">
               <div className="flex justify-between text-slate-500 dark:text-slate-400">
-                <span>FOB (BRL) + Fiscal Freight + Insurance</span>
+                <span>{tr.numerario.drawer.vaBaseLine}</span>
                 <span className="font-mono tabular-nums">
                   {formatCurrency(line.valorAduaneiroBrl, 'BRL')}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span>II — Imposto de Importação ({line.iiRatePct}%)</span>
+                <span>{fmt(tr.numerario.drawer.iiLine, { rate: line.iiRatePct })}</span>
                 <span className="font-mono tabular-nums font-medium text-slate-900 dark:text-white">
                   {formatCurrency(line.iiBrl, 'BRL')}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span>IPI — Prod. Industrializados ({line.ipiRatePct}%)</span>
+                <span>{fmt(tr.numerario.drawer.ipiLine, { rate: line.ipiRatePct })}</span>
                 <span className="font-mono tabular-nums font-medium text-slate-900 dark:text-white">
                   {formatCurrency(line.ipiBrl, 'BRL')}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span>PIS-Importação ({line.pisRatePct}%)</span>
+                <span>{fmt(tr.numerario.drawer.pisLine, { rate: line.pisRatePct })}</span>
                 <span className="font-mono tabular-nums font-medium text-slate-900 dark:text-white">
                   {formatCurrency(line.pisBrl, 'BRL')}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span>COFINS-Importação ({line.cofinsRatePct}%)</span>
+                <span>{fmt(tr.numerario.drawer.cofinsLine, { rate: line.cofinsRatePct })}</span>
                 <span className="font-mono tabular-nums font-medium text-slate-900 dark:text-white">
                   {formatCurrency(line.cofinsBrl, 'BRL')}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span>ICMS-Importação Gross-up ({line.icmsRatePct}%)</span>
+                <span>{fmt(tr.numerario.drawer.icmsLine, { rate: line.icmsRatePct })}</span>
                 <span className="font-mono tabular-nums font-medium text-slate-900 dark:text-white">
                   {formatCurrency(line.icmsBrl, 'BRL')}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span>Taxa Siscomex</span>
+                <span>{tr.numerario.drawer.siscomexLine}</span>
                 <span className="font-mono tabular-nums font-medium text-slate-900 dark:text-white">
                   {formatCurrency(line.siscomexBrl, 'BRL')}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span>AFRMM (Marinha Mercante)</span>
+                <span>{tr.numerario.drawer.afrmmLine}</span>
                 <span className="font-mono tabular-nums font-medium text-slate-900 dark:text-white">
                   {formatCurrency(line.afrmmBrl, 'BRL')}
                 </span>
               </div>
               <div className="pt-2 border-t border-slate-200 dark:border-slate-800 flex justify-between font-bold text-slate-900 dark:text-white">
-                <span>Subtotal Customs Taxes</span>
+                <span>{tr.numerario.drawer.subtotalTaxes}</span>
                 <span className="font-mono tabular-nums text-cyan-600 dark:text-cyan-400">
                   {formatCurrency(line.totalTaxesBrl, 'BRL')}
                 </span>
@@ -377,54 +374,54 @@ export const NumerarioDetailDrawer: React.FC<NumerarioDetailDrawerProps> = ({
           <div className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
             <div className="px-4 py-2.5 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60">
               <h4 className="text-xs font-semibold text-slate-900 dark:text-white">
-                Port, Brokerage &amp; Clearance Expenses
+                {tr.numerario.drawer.clearanceTitle}
               </h4>
             </div>
             <div className="p-4 space-y-2 text-xs">
               <div className="flex justify-between">
-                <span>Armazenagem (Port Terminal Storage)</span>
+                <span>{tr.numerario.drawer.storageLine}</span>
                 <span className="font-mono tabular-nums font-medium text-slate-900 dark:text-white">
                   {formatCurrency(line.armazenagemBrl, 'BRL')}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span>Capatazia (THC / Port Handling)</span>
+                <span>{tr.numerario.drawer.capataziaLine}</span>
                 <span className="font-mono tabular-nums font-medium text-slate-900 dark:text-white">
                   {formatCurrency(line.capataziaBrl, 'BRL')}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span>Despachante (Brokerage Honorários)</span>
+                <span>{tr.numerario.drawer.brokerageLine}</span>
                 <span className="font-mono tabular-nums font-medium text-slate-900 dark:text-white">
                   {formatCurrency(line.brokerFeeBrl, 'BRL')}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span>LI / Anuência Fee</span>
+                <span>{tr.numerario.drawer.liLine}</span>
                 <span className="font-mono tabular-nums font-medium text-slate-900 dark:text-white">
                   {formatCurrency(line.liFeeBrl, 'BRL')}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span>ECOTAX / Port Fees</span>
+                <span>{tr.numerario.drawer.ecotaxLine}</span>
                 <span className="font-mono tabular-nums font-medium text-slate-900 dark:text-white">
                   {formatCurrency(line.ecotaxBrl, 'BRL')}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span>Frete Nacional (Port → MFX Plant)</span>
+                <span>{tr.numerario.drawer.truckingLine}</span>
                 <span className="font-mono tabular-nums font-medium text-slate-900 dark:text-white">
                   {formatCurrency(line.freteNacionalBrl, 'BRL')}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span>Demurrage</span>
+                <span>{tr.numerario.drawer.demurrageLine}</span>
                 <span className="font-mono tabular-nums font-medium text-slate-900 dark:text-white">
                   {formatCurrency(line.demurrageBrl, 'BRL')}
                 </span>
               </div>
               <div className="pt-2 border-t border-slate-200 dark:border-slate-800 flex justify-between font-bold text-slate-900 dark:text-white">
-                <span>Subtotal Port &amp; Clearance</span>
+                <span>{tr.numerario.drawer.subtotalClearance}</span>
                 <span className="font-mono tabular-nums text-amber-600 dark:text-amber-400">
                   {formatCurrency(line.totalClearanceExpensesBrl, 'BRL')}
                 </span>
@@ -441,11 +438,10 @@ export const NumerarioDetailDrawer: React.FC<NumerarioDetailDrawerProps> = ({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <h4 className="text-xs font-semibold text-slate-900 dark:text-white">
-                Finance Department Numerário Simulator &amp; Cash-Call Approval
+                {tr.numerario.drawer.simTitle}
               </h4>
               <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                Simulate DI tax rates, switch Drawback vs. Full Tax regime, or log Finance
-                advance status
+                {tr.numerario.drawer.simSubtitle}
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -460,10 +456,10 @@ export const NumerarioDetailDrawer: React.FC<NumerarioDetailDrawerProps> = ({
                   setIcmsRateDraft(String(defaults.icms));
                   setRatesDirty(true);
                 }}
-                className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+                className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 whitespace-nowrap"
               >
                 <Calculator className="w-3 h-3" />
-                Load NCM Ref. Rates
+                {tr.numerario.drawer.loadNcmRates}
               </button>
               {line.hasOverride && (
                 <button
@@ -472,10 +468,10 @@ export const NumerarioDetailDrawer: React.FC<NumerarioDetailDrawerProps> = ({
                     onSaveOverride(line.id, null);
                     onClose();
                   }}
-                  className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium rounded-lg text-rose-600 dark:text-rose-400 hover:bg-rose-500/10"
+                  className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium rounded-lg text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 whitespace-nowrap"
                 >
                   <RotateCcw className="w-3 h-3" />
-                  Reset Auto SAP
+                  {tr.numerario.drawer.resetAutoSap}
                 </button>
               )}
             </div>
@@ -484,10 +480,10 @@ export const NumerarioDetailDrawer: React.FC<NumerarioDetailDrawerProps> = ({
           <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5">
             <div className="col-span-2 sm:col-span-2 lg:col-span-2">
               <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">
-                Regime Mode
+                {tr.numerario.drawer.regimeMode}
               </label>
               <select
-                aria-label="Tax Regime Mode"
+                aria-label={tr.numerario.drawer.regimeMode}
                 value={regimeDraft}
                 onChange={(e) => {
                   setRegimeDraft(
@@ -497,9 +493,9 @@ export const NumerarioDetailDrawer: React.FC<NumerarioDetailDrawerProps> = ({
                 }}
                 className="w-full px-2 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
               >
-                <option value="AUTO">Auto (SAP / AC)</option>
-                <option value="RECOLHIMENTO_INTEGRAL">Force Recolhimento Integral</option>
-                <option value="DRAWBACK_SUSP">Force Drawback Suspensão</option>
+                <option value="AUTO">{tr.numerario.drawer.modeAuto}</option>
+                <option value="RECOLHIMENTO_INTEGRAL">{tr.numerario.drawer.modeFullTax}</option>
+                <option value="DRAWBACK_SUSP">{tr.numerario.drawer.modeDrawback}</option>
               </select>
             </div>
 
@@ -592,7 +588,7 @@ export const NumerarioDetailDrawer: React.FC<NumerarioDetailDrawerProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
             <div>
               <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">
-                Siscomex (BRL)
+                {tr.numerario.drawer.siscomexInput}
               </label>
               <input
                 type="number"
@@ -608,7 +604,7 @@ export const NumerarioDetailDrawer: React.FC<NumerarioDetailDrawerProps> = ({
 
             <div>
               <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">
-                Valor Adiantado (BRL)
+                {tr.numerario.drawer.valorAdtInput}
               </label>
               <input
                 type="number"
@@ -621,7 +617,7 @@ export const NumerarioDetailDrawer: React.FC<NumerarioDetailDrawerProps> = ({
 
             <div>
               <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">
-                Data Sol. Numerário
+                {tr.numerario.drawer.reqDateInput}
               </label>
               <input
                 type="text"
@@ -634,18 +630,18 @@ export const NumerarioDetailDrawer: React.FC<NumerarioDetailDrawerProps> = ({
 
             <div>
               <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">
-                Finance Status
+                {tr.numerario.drawer.finStatusInput}
               </label>
               <select
-                aria-label="Finance Status"
+                aria-label={tr.numerario.drawer.finStatusInput}
                 value={financeStatusDraft}
                 onChange={(e) => setFinanceStatusDraft(e.target.value as NumerarioFinanceStatus)}
                 className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
               >
-                <option value="DRAFT">Pre-Request</option>
-                <option value="REQUESTED">Requested to Finance</option>
-                <option value="APPROVED">Approved / Ready</option>
-                <option value="PAID">Settled / Paid</option>
+                <option value="DRAFT">{tr.numerario.finStatus.DRAFT}</option>
+                <option value="REQUESTED">{tr.numerario.finStatus.REQUESTED}</option>
+                <option value="APPROVED">{tr.numerario.finStatus.APPROVED}</option>
+                <option value="PAID">{tr.numerario.finStatus.PAID}</option>
               </select>
             </div>
           </div>
@@ -656,19 +652,19 @@ export const NumerarioDetailDrawer: React.FC<NumerarioDetailDrawerProps> = ({
                 type="text"
                 value={noteDraft}
                 onChange={(e) => setNoteDraft(e.target.value)}
-                placeholder="Finance note (e.g. Sent to Treasury / DARF)..."
+                placeholder={tr.numerario.drawer.notePlaceholder}
                 className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
               />
             </div>
 
             <div className="flex items-center gap-3">
               <div className="text-right text-[11px] font-mono tabular-nums">
-                <span className="text-slate-500">Preview Total: </span>
+                <span className="text-slate-500">{tr.numerario.drawer.previewTotal} </span>
                 <strong className="text-slate-900 dark:text-white">
                   {formatCurrency(previewTotalNumerario, 'BRL')}
                 </strong>
                 <span className="text-slate-400 mx-1.5">·</span>
-                <span className="text-slate-500">Saldo: </span>
+                <span className="text-slate-500">{tr.numerario.drawer.previewSaldo} </span>
                 <strong
                   className={
                     previewSaldo > 50
@@ -685,7 +681,7 @@ export const NumerarioDetailDrawer: React.FC<NumerarioDetailDrawerProps> = ({
                 className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white transition-colors whitespace-nowrap"
               >
                 <Save className="w-3.5 h-3.5" />
-                Save Numerário
+                {tr.numerario.drawer.saveBtn}
               </button>
             </div>
           </div>

@@ -39,6 +39,8 @@ import {
 import { exportPqrWorkbook } from '../utils/exportReports';
 import { MaterialCheckDrawer } from './MaterialCheckDrawer';
 import { StatusBadge } from './StatusBadge';
+import { useI18n } from '../i18n/I18nContext';
+import { fmt } from '../i18n/translations';
 
 type RankingMode = 'ALL' | 'MOST_BOUGHT' | 'MOST_USED' | 'MOST_EXPENSIVE';
 
@@ -73,6 +75,7 @@ export const PqrControlPanel: React.FC<PqrControlPanelProps> = ({
   onSaveKraljicOverride,
   onSelectProcess,
 }) => {
+  const { tr } = useI18n();
   const [rankingMode, setRankingMode] = useState<RankingMode>('ALL');
   const [pqrFilter, setPqrFilter] = useState<'ALL' | PqrClass>('ALL');
   const [abcFilter, setAbcFilter] = useState<'ALL' | AbcClass>('ALL');
@@ -175,12 +178,12 @@ export const PqrControlPanel: React.FC<PqrControlPanelProps> = ({
           <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2 text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400">
             <span className="truncate">{secondaryMetric}</span>
             <span className="text-cyan-600 dark:text-cyan-400 font-sans font-medium shrink-0">
-              Check →
+              {tr.common.check} →
             </span>
           </div>
         </>
       ) : (
-        <div className="mt-3 text-xs text-slate-400">No items in active filter</div>
+        <div className="mt-3 text-xs text-slate-400">{tr.pqr.noItemsFilter}</div>
       )}
     </button>
   );
@@ -191,12 +194,12 @@ export const PqrControlPanel: React.FC<PqrControlPanelProps> = ({
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4">
           <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-            <span>PQR Material Portfolio</span>
+            <span>{tr.pqr.portfolioTitle}</span>
             <Layers className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
           </div>
           <div className="mt-2 flex items-baseline gap-3">
             <span className="text-2xl font-bold font-mono tabular-nums text-slate-900 dark:text-white">
-              {analytics.totalSkus} SKUs
+              {fmt(tr.pqr.skusCount, { count: analytics.totalSkus })}
             </span>
             <span className="text-xs font-mono tabular-nums text-slate-500 dark:text-slate-400">
               P:{analytics.pqrCounts.P.count} · Q:{analytics.pqrCounts.Q.count} · R:{analytics.pqrCounts.R.count}
@@ -204,44 +207,53 @@ export const PqrControlPanel: React.FC<PqrControlPanelProps> = ({
           </div>
           <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2 text-xs font-mono tabular-nums">
             <span className="text-slate-500 dark:text-slate-400">
-              Spend: <strong className="text-slate-900 dark:text-white">{formatCurrency(analytics.totalSpendBrl, 'BRL')}</strong>
+              {tr.pqr.spendLabel} <strong className="text-slate-900 dark:text-white">{formatCurrency(analytics.totalSpendBrl, 'BRL')}</strong>
             </span>
           </div>
         </div>
 
         {highlightCard(
-          'Most Bought Item (Volume & POs)',
+          tr.pqr.mostBoughtTitle,
           <ShoppingCart className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />,
           analytics.mostBought,
           analytics.mostBought
             ? `${formatNumber(analytics.mostBought.totalOrderedQty, 0)} ${analytics.mostBought.unit}`
             : '-',
           analytics.mostBought
-            ? `MAT ${analytics.mostBought.materialCode} · ${analytics.mostBought.poCount} PO(s)`
+            ? fmt(tr.pqr.mostBoughtMeta, {
+                code: analytics.mostBought.materialCode,
+                count: analytics.mostBought.poCount,
+              })
             : '-'
         )}
 
         {highlightCard(
-          'Most Used Item (Received / Stock)',
+          tr.pqr.mostUsedTitle,
           <PackageCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />,
           analytics.mostUsed,
           analytics.mostUsed
             ? `${formatNumber(analytics.mostUsed.effectiveUsageQty, 0)} ${analytics.mostUsed.unit}`
             : '-',
           analytics.mostUsed
-            ? `Rec: ${formatNumber(analytics.mostUsed.totalReceivedQty, 0)} · Plant 0003: ${formatNumber(analytics.mostUsed.totalStockPlant0003, 0)}`
+            ? fmt(tr.pqr.mostUsedMeta, {
+                rec: formatNumber(analytics.mostUsed.totalReceivedQty, 0),
+                stock: formatNumber(analytics.mostUsed.totalStockPlant0003, 0),
+              })
             : '-'
         )}
 
         {highlightCard(
-          'Most Expensive Item (Total Spend)',
+          tr.pqr.mostExpensiveTitle,
           <DollarSign className="w-4 h-4 text-rose-600 dark:text-rose-400" />,
           analytics.mostExpensive,
           analytics.mostExpensive
             ? formatCurrency(analytics.mostExpensive.totalSpendBrl, 'BRL')
             : '-',
           analytics.mostExpensive
-            ? `Unit: ${formatCurrency(analytics.mostExpensive.avgUnitPriceBrl, 'BRL')} · ${analytics.mostExpensive.spendSharePct}% share`
+            ? fmt(tr.pqr.mostExpensiveMeta, {
+                unitCost: formatCurrency(analytics.mostExpensive.avgUnitPriceBrl, 'BRL'),
+                share: analytics.mostExpensive.spendSharePct,
+              })
             : '-'
         )}
       </div>
@@ -250,14 +262,7 @@ export const PqrControlPanel: React.FC<PqrControlPanelProps> = ({
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3 flex flex-wrap xl:flex-nowrap items-center justify-between gap-2.5">
         <div className="flex flex-wrap items-center gap-2 min-w-0">
           <div className="flex items-center gap-1 p-1 rounded-lg bg-slate-100 dark:bg-slate-950">
-            {(
-              [
-                ['ALL', 'All PQR'],
-                ['MOST_BOUGHT', 'Most Bought'],
-                ['MOST_USED', 'Most Used'],
-                ['MOST_EXPENSIVE', 'Most Expensive'],
-              ] as const
-            ).map(([mode, label]) => (
+            {(['ALL', 'MOST_BOUGHT', 'MOST_USED', 'MOST_EXPENSIVE'] as const).map((mode) => (
               <button
                 key={mode}
                 type="button"
@@ -268,41 +273,41 @@ export const PqrControlPanel: React.FC<PqrControlPanelProps> = ({
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
-                {label}
+                {tr.pqr.modes[mode]}
               </button>
             ))}
           </div>
 
           <select
-            aria-label="Filter by PQR Class"
+            aria-label={tr.pqr.pqrFilterAria}
             value={pqrFilter}
             onChange={(e) => setPqrFilter(e.target.value as 'ALL' | PqrClass)}
             className="px-2 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
           >
-            <option value="ALL">All PQR ({analytics.totalSkus})</option>
-            <option value="P">P · High Demand ({analytics.pqrCounts.P.count})</option>
-            <option value="Q">Q · Medium ({analytics.pqrCounts.Q.count})</option>
-            <option value="R">R · Specialized/Low ({analytics.pqrCounts.R.count})</option>
+            <option value="ALL">{fmt(tr.pqr.allPqrOption, { count: analytics.totalSkus })}</option>
+            <option value="P">{fmt(tr.pqr.pOption, { count: analytics.pqrCounts.P.count })}</option>
+            <option value="Q">{fmt(tr.pqr.qOption, { count: analytics.pqrCounts.Q.count })}</option>
+            <option value="R">{fmt(tr.pqr.rOption, { count: analytics.pqrCounts.R.count })}</option>
           </select>
 
           <select
-            aria-label="Filter by ABC Spend Class"
+            aria-label={tr.pqr.abcFilterAria}
             value={abcFilter}
             onChange={(e) => setAbcFilter(e.target.value as 'ALL' | AbcClass)}
             className="px-2 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
           >
-            <option value="ALL">All ABC Spend</option>
-            <option value="A">Class A · ~80% ({analytics.abcCounts.A.count})</option>
-            <option value="B">Class B · ~15% ({analytics.abcCounts.B.count})</option>
-            <option value="C">Class C · ~5% ({analytics.abcCounts.C.count})</option>
+            <option value="ALL">{tr.pqr.allAbcOption}</option>
+            <option value="A">{fmt(tr.pqr.classAOption, { count: analytics.abcCounts.A.count })}</option>
+            <option value="B">{fmt(tr.pqr.classBOption, { count: analytics.abcCounts.B.count })}</option>
+            <option value="C">{fmt(tr.pqr.classCOption, { count: analytics.abcCounts.C.count })}</option>
           </select>
 
           <div className="relative">
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
-              aria-label="Search PQR materials"
-              placeholder="Filter material, NCM..."
+              aria-label={tr.pqr.searchAria}
+              placeholder={tr.pqr.searchPlaceholder}
               value={localSearch}
               onChange={(e) => setLocalSearch(e.target.value)}
               className="pl-8 pr-2.5 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white w-44"
@@ -316,7 +321,7 @@ export const PqrControlPanel: React.FC<PqrControlPanelProps> = ({
           className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition-colors whitespace-nowrap shrink-0"
         >
           <Download className="w-3.5 h-3.5" />
-          Export PQR Control.xlsx
+          {tr.pqr.exportBtn}
         </button>
       </div>
 
@@ -325,28 +330,28 @@ export const PqrControlPanel: React.FC<PqrControlPanelProps> = ({
         <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
           <div>
             <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
-              PQR Spend &amp; Demand Concentration (Top Materials in BRL)
+              {tr.pqr.chartTitle}
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Sorted by active ranking mode ({rankingMode.replace('_', ' ').toLowerCase()}) · Click any bar or row to inspect POs &amp; stock
+              {fmt(tr.pqr.chartSubtitle, { mode: tr.pqr.modes[rankingMode] })}
             </p>
           </div>
           <div className="flex items-center gap-3 text-[11px] text-slate-500 dark:text-slate-400 whitespace-nowrap shrink-0">
             <span className="flex items-center gap-1">
-              <span className="w-2.5 h-2.5 rounded-xs bg-cyan-500 inline-block" /> Class P (Core)
+              <span className="w-2.5 h-2.5 rounded-xs bg-cyan-500 inline-block" /> {tr.pqr.classPLegend}
             </span>
             <span className="flex items-center gap-1">
-              <span className="w-2.5 h-2.5 rounded-xs bg-amber-500 inline-block" /> Class Q (Medium)
+              <span className="w-2.5 h-2.5 rounded-xs bg-amber-500 inline-block" /> {tr.pqr.classQLegend}
             </span>
             <span className="flex items-center gap-1">
-              <span className="w-2.5 h-2.5 rounded-xs bg-slate-500 inline-block" /> Class R (Low Vol)
+              <span className="w-2.5 h-2.5 rounded-xs bg-slate-500 inline-block" /> {tr.pqr.classRLegend}
             </span>
           </div>
         </div>
 
         {paretoChartData.length === 0 ? (
           <div className="h-52 flex items-center justify-center text-xs text-slate-500 dark:text-slate-400">
-            No material rows match the active filters.
+            {tr.pqr.emptyChart}
           </div>
         ) : (
           <div className="h-64 text-slate-700 dark:text-slate-200">
@@ -369,7 +374,7 @@ export const PqrControlPanel: React.FC<PqrControlPanelProps> = ({
                   contentStyle={CHART_TOOLTIP_STYLE}
                   itemStyle={CHART_TOOLTIP_ITEM_STYLE}
                   labelStyle={CHART_TOOLTIP_LABEL_STYLE}
-                  formatter={(value: unknown) => [formatCurrency(Number(value), 'BRL'), 'Total Spend']}
+                  formatter={(value: unknown) => [formatCurrency(Number(value), 'BRL'), tr.pqr.totalSpendTooltip]}
                   labelFormatter={(label) => {
                     const match = paretoChartData.find((d) => d.code === label);
                     return match ? `${match.code} — ${match.descShort}` : String(label);
@@ -377,7 +382,7 @@ export const PqrControlPanel: React.FC<PqrControlPanelProps> = ({
                 />
                 <Bar
                   dataKey="spendBrl"
-                  name="Total Spend (BRL)"
+                  name={tr.pqr.totalSpendSeries}
                   radius={[4, 4, 0, 0]}
                   cursor="pointer"
                   onClick={(data) => {
@@ -408,21 +413,21 @@ export const PqrControlPanel: React.FC<PqrControlPanelProps> = ({
         <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
           <div>
             <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
-              PQR Material Control Ledger ({displayedMaterials.length})
+              {fmt(tr.pqr.tableTitle, { count: displayedMaterials.length })}
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Purchased volume, MIGO usage, Plant 0003 stock &amp; spend share · Click Check to audit linked POs
+              {tr.pqr.tableSubtitle}
             </p>
           </div>
           <span className="inline-flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
             <ArrowUpDown className="w-3.5 h-3.5" />
             {rankingMode === 'MOST_BOUGHT'
-              ? 'Sorted by POs & Ordered Qty'
+              ? tr.pqr.sortByBought
               : rankingMode === 'MOST_USED'
-                ? 'Sorted by Received & Stock Usage'
+                ? tr.pqr.sortByUsed
                 : rankingMode === 'MOST_EXPENSIVE'
-                  ? 'Sorted by Total Spend (BRL)'
-                  : 'Sorted by PQR Class & Spend'}
+                  ? tr.pqr.sortByExpensive
+                  : tr.pqr.sortByPqr}
           </span>
         </div>
 
@@ -430,24 +435,24 @@ export const PqrControlPanel: React.FC<PqrControlPanelProps> = ({
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-50 dark:bg-slate-950/60 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800 whitespace-nowrap">
-                <th className="py-2.5 px-3 font-medium">Material</th>
-                <th className="py-2.5 px-3 font-medium">PQR</th>
-                <th className="py-2.5 px-3 font-medium">ABC</th>
-                <th className="py-2.5 px-3 font-medium text-right">POs</th>
-                <th className="py-2.5 px-3 font-medium text-right">Bought (Ord)</th>
-                <th className="py-2.5 px-3 font-medium text-right">Used / Rec</th>
-                <th className="py-2.5 px-3 font-medium text-right">Plant 0003</th>
-                <th className="py-2.5 px-3 font-medium text-right">Unit Cost</th>
-                <th className="py-2.5 px-3 font-medium text-right">Total Spend (BRL)</th>
-                <th className="py-2.5 px-3 font-medium text-right">Share</th>
-                <th className="py-2.5 px-3 font-medium text-right">Action</th>
+                <th className="py-2.5 px-3 font-medium">{tr.pqr.colMaterial}</th>
+                <th className="py-2.5 px-3 font-medium">{tr.pqr.colPqr}</th>
+                <th className="py-2.5 px-3 font-medium">{tr.pqr.colAbc}</th>
+                <th className="py-2.5 px-3 font-medium text-right">{tr.pqr.colPos}</th>
+                <th className="py-2.5 px-3 font-medium text-right">{tr.pqr.colBought}</th>
+                <th className="py-2.5 px-3 font-medium text-right">{tr.pqr.colUsed}</th>
+                <th className="py-2.5 px-3 font-medium text-right">{tr.pqr.colPlant}</th>
+                <th className="py-2.5 px-3 font-medium text-right">{tr.pqr.colUnitCost}</th>
+                <th className="py-2.5 px-3 font-medium text-right">{tr.pqr.colTotalSpend}</th>
+                <th className="py-2.5 px-3 font-medium text-right">{tr.pqr.colShare}</th>
+                <th className="py-2.5 px-3 font-medium text-right">{tr.pqr.colAction}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/70">
               {displayedMaterials.length === 0 ? (
                 <tr>
                   <td colSpan={11} className="py-8 px-3 text-center text-xs text-slate-500 dark:text-slate-400">
-                    No materials match the active PQR filters.
+                    {tr.pqr.emptyTable}
                   </td>
                 </tr>
               ) : (
@@ -467,7 +472,7 @@ export const PqrControlPanel: React.FC<PqrControlPanelProps> = ({
                       </div>
                     </td>
                     <td className="py-2.5 px-3 whitespace-nowrap">
-                      <StatusBadge label={`Class ${mat.pqrClass}`} tone={PQR_TONE[mat.pqrClass]} />
+                      <StatusBadge label={fmt(tr.pqr.classBadge, { cls: mat.pqrClass })} tone={PQR_TONE[mat.pqrClass]} />
                     </td>
                     <td className="py-2.5 px-3 whitespace-nowrap">
                       <StatusBadge label={mat.abcClass} tone={ABC_TONE[mat.abcClass]} />
@@ -500,11 +505,11 @@ export const PqrControlPanel: React.FC<PqrControlPanelProps> = ({
                           e.stopPropagation();
                           setSelectedMaterialKey(mat.materialKey);
                         }}
-                        aria-label={`Check material ${mat.materialCode}`}
+                        aria-label={fmt(tr.pqr.checkAria, { code: mat.materialCode })}
                         className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
                       >
                         <Eye className="w-3 h-3" />
-                        Check
+                        {tr.common.check}
                       </button>
                     </td>
                   </tr>

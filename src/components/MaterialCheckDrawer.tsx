@@ -7,6 +7,9 @@ import type {
 } from '../types/comex';
 import { formatCurrency, formatDateBr, formatNumber } from '../utils/sapParser';
 import { StatusBadge, getDeliveryStatusTone } from './StatusBadge';
+import { useI18n } from '../i18n/I18nContext';
+import { fmt } from '../i18n/translations';
+import { translateDeliveryStatus, translateRiskDriver } from '../i18n/helpers';
 
 export const KRALJIC_META: Record<
   KraljicQuadrant,
@@ -61,6 +64,7 @@ export const MaterialCheckDrawer: React.FC<MaterialCheckDrawerProps> = ({
   onSaveKraljicOverride,
   onSelectProcess,
 }) => {
+  const { lang, tr } = useI18n();
   const [quadrantDraft, setQuadrantDraft] = useState<KraljicQuadrant>('NON_CRITICAL');
   const [noteDraft, setNoteDraft] = useState('');
 
@@ -82,6 +86,7 @@ export const MaterialCheckDrawer: React.FC<MaterialCheckDrawerProps> = ({
   if (!material) return null;
 
   const qMeta = KRALJIC_META[material.kraljicQuadrant];
+  const qTr = tr.kraljic.quadrants[material.kraljicQuadrant];
   const isOverridden =
     material.kraljicQuadrant !== material.computedQuadrant || Boolean(material.overrideNote);
 
@@ -101,7 +106,7 @@ export const MaterialCheckDrawer: React.FC<MaterialCheckDrawerProps> = ({
       onClick={onClose}
       role="dialog"
       aria-modal="true"
-      aria-label={`Inspect material ${material.materialCode}`}
+      aria-label={fmt(tr.materialDrawer.inspectAria, { code: material.materialCode })}
     >
       <div
         className="w-full max-w-3xl bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 h-full overflow-y-auto p-6 shadow-2xl space-y-6"
@@ -132,7 +137,7 @@ export const MaterialCheckDrawer: React.FC<MaterialCheckDrawerProps> = ({
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close material check drawer"
+            aria-label={tr.materialDrawer.closeAria}
             className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 shrink-0"
           >
             <X className="w-4 h-4" />
@@ -142,42 +147,42 @@ export const MaterialCheckDrawer: React.FC<MaterialCheckDrawerProps> = ({
         {/* Summary Metrics Grid */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 p-3">
-            <div className="text-[11px] text-slate-500 dark:text-slate-400">Total Spend (BRL)</div>
+            <div className="text-[11px] text-slate-500 dark:text-slate-400">{tr.materialDrawer.totalSpend}</div>
             <div className="mt-1 text-sm font-bold font-mono tabular-nums text-slate-900 dark:text-white">
               {formatCurrency(material.totalSpendBrl, 'BRL')}
             </div>
             <div className="mt-0.5 text-[11px] font-mono tabular-nums text-slate-500">
-              {material.spendSharePct}% share
+              {fmt(tr.materialDrawer.sharePct, { pct: material.spendSharePct })}
             </div>
           </div>
 
           <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 p-3">
-            <div className="text-[11px] text-slate-500 dark:text-slate-400">Avg Unit Cost</div>
+            <div className="text-[11px] text-slate-500 dark:text-slate-400">{tr.materialDrawer.avgUnitCost}</div>
             <div className="mt-1 text-sm font-bold font-mono tabular-nums text-slate-900 dark:text-white">
               {formatCurrency(material.avgUnitPriceBrl, 'BRL')}
             </div>
             <div className="mt-0.5 text-[11px] font-mono tabular-nums text-slate-500">
-              per {material.unit}
+              {fmt(tr.common.perUnit, { unit: material.unit })}
             </div>
           </div>
 
           <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 p-3">
-            <div className="text-[11px] text-slate-500 dark:text-slate-400">Bought / Ordered</div>
+            <div className="text-[11px] text-slate-500 dark:text-slate-400">{tr.materialDrawer.boughtOrdered}</div>
             <div className="mt-1 text-sm font-bold font-mono tabular-nums text-slate-900 dark:text-white">
               {formatNumber(material.totalOrderedQty, 0)} {material.unit}
             </div>
             <div className="mt-0.5 text-[11px] font-mono tabular-nums text-slate-500">
-              {material.poCount} PO{material.poCount === 1 ? '' : 's'} ({material.lineCount} line{material.lineCount === 1 ? '' : 's'})
+              {fmt(tr.materialDrawer.posLines, { pos: material.poCount, lines: material.lineCount })}
             </div>
           </div>
 
           <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 p-3">
-            <div className="text-[11px] text-slate-500 dark:text-slate-400">Used / Plant 0003</div>
+            <div className="text-[11px] text-slate-500 dark:text-slate-400">{tr.materialDrawer.usedPlant}</div>
             <div className="mt-1 text-sm font-bold font-mono tabular-nums text-emerald-700 dark:text-emerald-300">
               {formatNumber(material.effectiveUsageQty, 0)} {material.unit}
             </div>
             <div className="mt-0.5 text-[11px] font-mono tabular-nums text-slate-500">
-              Pending: {formatNumber(material.totalPendingQty, 0)}
+              {fmt(tr.materialDrawer.pending, { qty: formatNumber(material.totalPendingQty, 0) })}
             </div>
           </div>
         </div>
@@ -186,50 +191,61 @@ export const MaterialCheckDrawer: React.FC<MaterialCheckDrawerProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 space-y-2">
             <div className="text-xs font-semibold text-slate-900 dark:text-white">
-              Plant 0003 Inventory Breakdown
+              {tr.materialDrawer.inventoryTitle}
             </div>
             <div className="grid grid-cols-3 gap-2 text-xs pt-1">
               <div>
-                <div className="text-slate-500 dark:text-slate-400">Free</div>
+                <div className="text-slate-500 dark:text-slate-400">{tr.materialDrawer.stockFree}</div>
                 <div className="font-mono tabular-nums font-semibold text-slate-900 dark:text-white">
                   {formatNumber(material.stockFree, 0)}
                 </div>
               </div>
               <div>
-                <div className="text-slate-500 dark:text-slate-400">Quality</div>
+                <div className="text-slate-500 dark:text-slate-400">{tr.materialDrawer.stockQuality}</div>
                 <div className="font-mono tabular-nums font-semibold text-amber-600 dark:text-amber-300">
                   {formatNumber(material.stockQuality, 0)}
                 </div>
               </div>
               <div>
-                <div className="text-slate-500 dark:text-slate-400">Blocked</div>
+                <div className="text-slate-500 dark:text-slate-400">{tr.materialDrawer.stockBlocked}</div>
                 <div className="font-mono tabular-nums font-semibold text-rose-600 dark:text-rose-400">
                   {formatNumber(material.stockBlocked, 0)}
                 </div>
               </div>
             </div>
             <div className="pt-2 border-t border-slate-100 dark:border-slate-800 text-[11px] text-slate-500 dark:text-slate-400">
-              Projects: {material.pepProjects.join(', ') || '-'}
+              {fmt(tr.materialDrawer.projects, { projects: material.pepProjects.join(', ') || '-' })}
             </div>
           </div>
 
           <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 space-y-2">
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs font-semibold text-slate-900 dark:text-white">
-                Kraljic Risk &amp; Impact Profile
+                {tr.materialDrawer.riskProfileTitle}
               </span>
-              <StatusBadge label={`${qMeta.label} (${qMeta.ptLabel})`} tone={qMeta.tone} />
+              <StatusBadge
+                label={
+                  qTr.label.toLowerCase() === qTr.localLabel.toLowerCase()
+                    ? qTr.label
+                    : `${qTr.label} (${qTr.localLabel})`
+                }
+                tone={qMeta.tone}
+              />
             </div>
             <div className="flex items-center gap-4 text-xs font-mono tabular-nums pt-1">
               <span>
-                Impact: <strong className="text-slate-900 dark:text-white">{material.profitImpactScore}/100</strong>
+                {tr.materialDrawer.impactScore} <strong className="text-slate-900 dark:text-white">{material.profitImpactScore}/100</strong>
               </span>
               <span>
-                Supply Risk: <strong className="text-slate-900 dark:text-white">{material.supplyRiskScore}/100</strong>
+                {tr.materialDrawer.riskScore} <strong className="text-slate-900 dark:text-white">{material.supplyRiskScore}/100</strong>
               </span>
             </div>
             <div className="text-[11px] text-slate-500 dark:text-slate-400">
-              Drivers: {material.riskDrivers.join(' · ') || 'Low supply friction'}
+              {fmt(tr.materialDrawer.driversLabel, {
+                drivers:
+                  material.riskDrivers.map((d) => translateRiskDriver(d, lang)).join(' · ') ||
+                  tr.materialDrawer.lowSupplyFriction,
+              })}
             </div>
           </div>
         </div>
@@ -243,12 +259,12 @@ export const MaterialCheckDrawer: React.FC<MaterialCheckDrawerProps> = ({
             <div className="flex items-center justify-between gap-2">
               <div>
                 <div className="text-xs font-semibold text-slate-900 dark:text-white">
-                  Kraljic Classification Check &amp; Calibration
+                  {tr.materialDrawer.calibrationTitle}
                 </div>
                 <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                  Auto-computed from SAP spend &amp; risk:{' '}
+                  {tr.materialDrawer.autoComputed}{' '}
                   <strong className="text-slate-700 dark:text-slate-200">
-                    {KRALJIC_META[material.computedQuadrant].label}
+                    {tr.kraljic.quadrants[material.computedQuadrant].label}
                   </strong>
                 </div>
               </div>
@@ -262,7 +278,7 @@ export const MaterialCheckDrawer: React.FC<MaterialCheckDrawerProps> = ({
                   className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium rounded-lg text-rose-600 dark:text-rose-400 hover:bg-rose-500/10"
                 >
                   <RotateCcw className="w-3 h-3" />
-                  Reset Auto
+                  {tr.materialDrawer.resetAuto}
                 </button>
               )}
             </div>
@@ -270,29 +286,35 @@ export const MaterialCheckDrawer: React.FC<MaterialCheckDrawerProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">
-                  Kraljic Quadrant
+                  {tr.materialDrawer.quadrantLabel}
                 </label>
                 <select
-                  aria-label="Kraljic Quadrant Override"
+                  aria-label={tr.materialDrawer.quadrantAria}
                   value={quadrantDraft}
                   onChange={(e) => setQuadrantDraft(e.target.value as KraljicQuadrant)}
                   className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
                 >
-                  <option value="STRATEGIC">Strategic (Estratégicos)</option>
-                  <option value="LEVERAGE">Leverage (Alavancagem)</option>
-                  <option value="BOTTLENECK">Bottleneck (Gargalo)</option>
-                  <option value="NON_CRITICAL">Non-Critical (Não Críticos)</option>
+                  {(['STRATEGIC', 'LEVERAGE', 'BOTTLENECK', 'NON_CRITICAL'] as KraljicQuadrant[]).map((qKey) => {
+                    const qOption = tr.kraljic.quadrants[qKey];
+                    return (
+                      <option key={qKey} value={qKey}>
+                        {qOption.label.toLowerCase() === qOption.localLabel.toLowerCase()
+                          ? qOption.label
+                          : `${qOption.label} (${qOption.localLabel})`}
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
               <div className="sm:col-span-2">
                 <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">
-                  Verification Note / Action Plan
+                  {tr.materialDrawer.noteLabel}
                 </label>
                 <input
                   type="text"
                   value={noteDraft}
                   onChange={(e) => setNoteDraft(e.target.value)}
-                  placeholder="e.g. Dual-source qualification Q1 / AC renewal pending..."
+                  placeholder={tr.materialDrawer.notePlaceholder}
                   className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
                 />
               </div>
@@ -304,7 +326,7 @@ export const MaterialCheckDrawer: React.FC<MaterialCheckDrawerProps> = ({
                 className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white transition-colors"
               >
                 <Save className="w-3.5 h-3.5" />
-                Save Classification
+                {tr.materialDrawer.saveBtn}
               </button>
             </div>
           </form>
@@ -314,22 +336,22 @@ export const MaterialCheckDrawer: React.FC<MaterialCheckDrawerProps> = ({
         <div className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800">
             <h4 className="text-xs font-semibold text-slate-900 dark:text-white">
-              Linked Purchase Orders &amp; MFX Shipments ({material.items.length})
+              {fmt(tr.materialDrawer.linkedPosTitle, { count: material.items.length })}
             </h4>
             <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              Inspect every SAP PO line and click any MFX reference to open its shipment record
+              {tr.materialDrawer.linkedPosSubtitle}
             </p>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="bg-slate-50 dark:bg-slate-950/60 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800 whitespace-nowrap">
-                  <th className="py-2 px-2.5 font-medium">PO / Date</th>
-                  <th className="py-2 px-2.5 font-medium">Supplier</th>
-                  <th className="py-2 px-2.5 font-medium">MFX Ref</th>
-                  <th className="py-2 px-2.5 font-medium text-right">Ord / Rec</th>
-                  <th className="py-2 px-2.5 font-medium text-right">Value</th>
-                  <th className="py-2 px-2.5 font-medium">Status</th>
+                  <th className="py-2 px-2.5 font-medium">{tr.materialDrawer.colPoDate}</th>
+                  <th className="py-2 px-2.5 font-medium">{tr.materialDrawer.colSupplier}</th>
+                  <th className="py-2 px-2.5 font-medium">{tr.materialDrawer.colMfxRef}</th>
+                  <th className="py-2 px-2.5 font-medium text-right">{tr.materialDrawer.colOrdRec}</th>
+                  <th className="py-2 px-2.5 font-medium text-right">{tr.materialDrawer.colValue}</th>
+                  <th className="py-2 px-2.5 font-medium">{tr.materialDrawer.colStatus}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800/70">
@@ -360,7 +382,7 @@ export const MaterialCheckDrawer: React.FC<MaterialCheckDrawerProps> = ({
                           <ExternalLink className="w-3 h-3" />
                         </button>
                       ) : (
-                        <span className="text-slate-400">Open PO</span>
+                        <span className="text-slate-400">{tr.common.openPo}</span>
                       )}
                     </td>
                     <td className="py-2 px-2.5 text-right font-mono tabular-nums whitespace-nowrap">
@@ -377,7 +399,7 @@ export const MaterialCheckDrawer: React.FC<MaterialCheckDrawerProps> = ({
                     </td>
                     <td className="py-2 px-2.5 whitespace-nowrap">
                       <StatusBadge
-                        label={row.STATUS_PRAZO_ENTREGA}
+                        label={translateDeliveryStatus(row.STATUS_PRAZO_ENTREGA, lang)}
                         tone={getDeliveryStatusTone(row.STATUS_PRAZO_ENTREGA)}
                       />
                     </td>

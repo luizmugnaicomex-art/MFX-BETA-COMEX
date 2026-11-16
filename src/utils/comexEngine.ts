@@ -1,13 +1,16 @@
 import type {
   AbcClass,
   CashFlowEntry,
+  ComexChartsAnalyticsResult,
   ComexFilters,
+  CostOptimizationAction,
   DateFilterBasis,
   FupItemRow,
   KraljicOverride,
   KraljicQuadrant,
   MaterialAnalyticsResult,
   MaterialProcurementItem,
+  MaterialTroubleProfile,
   MatrixColumnMeta,
   MatrixMaterialRow,
   MatrixProjectSection,
@@ -20,9 +23,14 @@ import type {
   OrderStatusMatrixData,
   PartnerScorecard,
   PqrClass,
+  ShipmentAirEvaluation,
+  ShipmentCostBenefitRow,
+  ShipmentItemTroubleSummary,
   ShipmentOperationalStatus,
   ShipmentOverrides,
   ShipmentProcessRow,
+  ShipmentWorthinessAnalysisResult,
+  ShipmentWorthinessVerdict,
   SimilarGroupDecision,
   SimilarItemsAnalysisResult,
   SimilarMaterialGroup,
@@ -712,6 +720,8 @@ export function buildOrderStatusMatrix(
         ncm: item.FUP_NCMS || '-',
         um: item.UNIDADE || 'UND',
         estoque: item.ESTOQUE_SOMA_TRES_CATEGORIAS_PLANTA_0003,
+        elementoPep: item.DESCRICAO_ELEMENTO_PEP || item.ELEMENTO_PEP_INTERNO || '-',
+        elementoPepCode: item.ELEMENTO_PEP_INTERNO || '',
         quantities: {},
         qtdAcDefault: 0,
         acNumber: item.FUP_ATO_CONCESSORIO,
@@ -2950,6 +2960,1581 @@ export function buildNumerarioAnalysis(
     taxBreakdownChart,
   };
 }
+
+export function buildShipmentWorthinessAnalysis(
+  processes: ShipmentProcessRow[],
+  filteredItems: FupItemRow[],
+  allItems: FupItemRow[] = filteredItems
+): ShipmentWorthinessAnalysisResult {
+  const round2 = (v: number): number =>
+    Math.round((Number.isFinite(v) ? v : 0) * 100) / 100;
+  const pct = (num: number, den: number): number =>
+    den > 0 && Number.isFinite(num) ? round2((num / den) * 100) : 0;
+
+  // 1. Cross-order Material Trouble Profiling (across full SAP history, excluding deleted LOEKZ='L')
+  const historySource = (allItems.length > 0 ? allItems : filteredItems).filter(
+    (i) => i.LOEKZ !== 'L' && i.STATUS_PRAZO_ENTREGA !== 'ITEM EXCLUIDO'
+  );
+
+  interface MatAcc {
+    materialCode: string;
+    descPt: string;
+    descEn: string;
+    ncm: string;
+    suppliers: Map<string, number>;
+    poSet: Set<string>;
+    latePoSet: Set<string>;
+    processes: Set<string>;
+    lineCount: number;
+    lateLines: number;
+    delayDaysList: number[];
+    airCount: number;
+    seaCount: number;
+    exwCount: number;
+    missingAcCount: number;
+    totalSpendBrl: number;
+    totalFreightAndStorageBrl: number;
+    totalStorageAndDemurrageBrl: number;
+    stockPlant0003: number;
+    canalRedOrYellowCount: number;
+  }
+
+  const processByRef = new Map<string, ShipmentProcessRow>();
+  for (const p of processes) processByRef.set(p.ref, p);
+
+  const matMap = new Map<string, MatAcc>();
+  for (const item of historySource) {
+    const code = (item.MATERIAL || item.DESCRICAO_MATERIAL || item.id).trim();
+    if (!code) continue;
+
+    let acc = matMap.get(code);
+    if (!acc) {
+      acc = {
+        materialCode: code,
+        descPt: item.DESCRICAO_MATERIAL || '-',
+        descEn: item.DESCRICAO_MATERIAL_INGLES || '-',
+        ncm: item.FUP_NCMS || '-',
+        suppliers: new Map(),
+        poSet: new Set(),
+        latePoSet: new Set(),
+        processes: new Set(),
+        lineCount: 0,
+        lateLines: 0,
+        delayDaysList: [],
+        airCount: 0,
+        seaCount: 0,
+        exwCount: 0,
+        missingAcCount: 0,
+        totalSpendBrl: 0,
+        totalFreightAndStorageBrl: 0,
+        totalStorageAndDemurrageBrl: 0,
+        stockPlant0003: item.ESTOQUE_SOMA_TRES_CATEGORIAS_PLANTA_0003 || 0,
+        canalRedOrYellowCount: 0,
+      };
+      matMap.set(code, acc);
+    }
+
+    acc.lineCount += 1;
+    if (item.PEDIDO) acc.poSet.add(item.PEDIDO);
+    if (item.NOME_FORNECEDOR) {
+      acc.suppliers.set(
+        item.NOME_FORNECEDOR,
+        (acc.suppliers.get(item.NOME_FORNECEDOR) || 0) + 1
+      );
+    }
+    if (item.ULTIMO_PROCESSO_IMPORTACAO) {
+      acc.processes.add(item.ULTIMO_PROCESSO_IMPORTACAO);
+    }
+    if (item.ESTOQUE_SOMA_TRES_CATEGORIAS_PLANTA_0003 > acc.stockPlant0003) {
+      acc.stockPlant0003 = item.ESTOQUE_SOMA_TRES_CATEGORIAS_PLANTA_0003;
+    }
+
+    const isLate =
+      item.STATUS_PRAZO_ENTREGA === 'ATRASADO' || item.DIAS_ATRASO_ENTREGA > 0;
+    if (isLate) {
+      acc.lateLines += 1;
+      if (item.PEDIDO) acc.latePoSet.add(item.PEDIDO);
+      if (item.DIAS_ATRASO_ENTREGA > 0) acc.delayDaysList.push(item.DIAS_ATRASO_ENTREGA);
+    }
+
+    if (item.FUP_TIPO_EMBARQUE === 'A') acc.airCount += 1;
+    else if (item.FUP_TIPO_EMBARQUE === 'M') acc.seaCount += 1;
+
+    if ((item.FUP_INCOTERM || '').toUpperCase().startsWith('EXW')) {
+      acc.exwCount += 1;
+    }
+
+    const hasDrawbackNcm = item.FUP_NCMS
+      .split(',')
+      .some((n) => isDrawbackExpectedNcm(n.trim()));
+    if (hasDrawbackNcm && !item.FUP_ATO_CONCESSORIO) {
+      acc.missingAcCount += 1;
+    }
+
+    if (
+      item.FUP_CANAL_PARAMETRIZACAO === 'VM' ||
+      item.FUP_CANAL_PARAMETRIZACAO === 'AM'
+    ) {
+      acc.canalRedOrYellowCount += 1;
+    }
+
+    const fxRate =
+      item.MOEDA === 'BRL'
+        ? 1
+        : item.MOEDA === 'EUR'
+          ? item.FUP_TAXA_EURO_PROCESSO || 6.12
+          : item.FUP_TAXA_DOLAR_PROCESSO || 5.65;
+    const itemFobBrl =
+      item.FUP_VALOR_MERCADORIA > 0
+        ? item.FUP_VALOR_MERCADORIA
+        : item.VALOR_LIQUIDO * fxRate;
+
+    acc.totalSpendBrl += itemFobBrl;
+    const linkedProc = item.ULTIMO_PROCESSO_IMPORTACAO
+      ? processByRef.get(item.ULTIMO_PROCESSO_IMPORTACAO)
+      : undefined;
+    const procStorage =
+      linkedProc?.armazenagem ?? item.FUP_ARMAZENAGEM_PROCESSO ?? 0;
+    const procDemurrage = linkedProc?.demurrageTotal ?? 0;
+
+    // Distribute process-level storage/demurrage safely on single-item or multi-item fallback
+    const shareDivisor =
+      linkedProc && linkedProc.items.length > 1 ? linkedProc.items.length : 1;
+    acc.totalFreightAndStorageBrl +=
+      item.FUP_TOTAL_FRETE_FISCAL_ITEM + procStorage / shareDivisor;
+    acc.totalStorageAndDemurrageBrl +=
+      (procStorage + procDemurrage) / shareDivisor;
+  }
+
+  const materialTroubleMap = new Map<string, MaterialTroubleProfile>();
+  const materialTroubles: MaterialTroubleProfile[] = [];
+
+  for (const acc of matMap.values()) {
+    const orderCount = Math.max(acc.poSet.size, acc.lineCount);
+    const lateOrderCount = Math.max(acc.latePoSet.size, acc.lateLines);
+    const delayedRatePct = round2((lateOrderCount / orderCount) * 100);
+    const avgDelayDays =
+      acc.delayDaysList.length > 0
+        ? round2(
+            acc.delayDaysList.reduce((s, d) => s + d, 0) /
+              acc.delayDaysList.length
+          )
+        : 0;
+    const maxDelayDays =
+      acc.delayDaysList.length > 0 ? Math.max(...acc.delayDaysList) : 0;
+
+    let primarySupplier = '-';
+    let topSupCount = 0;
+    for (const [sup, cnt] of acc.suppliers.entries()) {
+      if (cnt > topSupCount) {
+        topSupCount = cnt;
+        primarySupplier = sup;
+      }
+    }
+
+    const troubleSignals: string[] = [];
+    if (lateOrderCount >= 2) {
+      troubleSignals.push(`Repeat delays (${lateOrderCount}/${orderCount} POs)`);
+    } else if (lateOrderCount === 1 && maxDelayDays >= 7) {
+      troubleSignals.push(`Delayed +${maxDelayDays}d vs SLA`);
+    } else if (lateOrderCount === 1) {
+      troubleSignals.push(`Delayed +${maxDelayDays || 1}d`);
+    }
+    if (acc.airCount >= 2) {
+      troubleSignals.push(`Repeat Air freight (${acc.airCount}x)`);
+    } else if (acc.airCount >= 1 && acc.lateLines > 0) {
+      troubleSignals.push('Emergency Air + Late delivery');
+    }
+    if (acc.missingAcCount > 0) {
+      troubleSignals.push('Missing Drawback AC');
+    }
+    if (acc.exwCount > 0) {
+      troubleSignals.push('EXW origin cost exposure');
+    }
+    if (acc.totalStorageAndDemurrageBrl >= 8000) {
+      troubleSignals.push('High port storage / demurrage');
+    }
+    if (acc.canalRedOrYellowCount > 0) {
+      troubleSignals.push('Customs Yellow/Red channel');
+    }
+
+    const avgCostOverFobPct = pct(acc.totalFreightAndStorageBrl, acc.totalSpendBrl);
+
+    const fixParts: string[] = [];
+    if (acc.missingAcCount > 0) {
+      fixParts.push('Link Drawback AC at PO creation to avoid customs holds');
+    }
+    if (lateOrderCount >= 2 || maxDelayDays >= 10) {
+      fixParts.push('Enforce Supplier SLA + extend MRP buffer lead time');
+    }
+    if (acc.airCount >= 2 || (acc.airCount >= 1 && acc.stockPlant0003 > 0)) {
+      fixParts.push('Consolidate into scheduled Sea PO / Blanket agreement');
+    }
+    if (acc.exwCount > 0) {
+      fixParts.push('Renegotiate Incoterm EXW → FCA/FOB');
+    }
+    if (acc.totalStorageAndDemurrageBrl >= 8000) {
+      fixParts.push('Pre-file DI & advance Numerário at ETA -5d to clear in Period 1');
+    }
+    if (fixParts.length === 0) {
+      fixParts.push('Maintain current sourcing cadence and customs pre-alert check');
+    }
+
+    const severityScore =
+      (lateOrderCount >= 2 ? 3 : lateOrderCount >= 1 ? 1 : 0) +
+      (acc.missingAcCount > 0 ? 2 : 0) +
+      (acc.airCount >= 2 ? 2 : 0) +
+      (acc.totalStorageAndDemurrageBrl >= 10000 ? 2 : acc.totalStorageAndDemurrageBrl >= 5000 ? 1 : 0) +
+      (maxDelayDays >= 15 ? 2 : 0);
+
+    const severity: MaterialTroubleProfile['severity'] =
+      severityScore >= 4 ? 'HIGH' : severityScore >= 2 ? 'MEDIUM' : 'LOW';
+
+    const profile: MaterialTroubleProfile = {
+      materialCode: acc.materialCode,
+      descPt: acc.descPt,
+      descEn: acc.descEn,
+      ncm: acc.ncm,
+      primarySupplier,
+      orderCount,
+      lineCount: acc.lineCount,
+      lateOrderCount,
+      delayedRatePct,
+      avgDelayDays,
+      maxDelayDays,
+      airShipmentCount: acc.airCount,
+      seaShipmentCount: acc.seaCount,
+      exwOrderCount: acc.exwCount,
+      missingAcCount: acc.missingAcCount,
+      totalSpendBrl: round2(acc.totalSpendBrl),
+      totalFreightAndStorageBrl: round2(acc.totalFreightAndStorageBrl),
+      totalStorageAndDemurrageBrl: round2(acc.totalStorageAndDemurrageBrl),
+      avgCostOverFobPct,
+      stockPlant0003: acc.stockPlant0003,
+      severity,
+      troubleSignals,
+      recommendedFutureFix: fixParts.join('; ') + '.',
+      linkedProcesses: Array.from(acc.processes),
+    };
+
+    materialTroubleMap.set(acc.materialCode, profile);
+    materialTroubles.push(profile);
+  }
+
+  materialTroubles.sort((a, b) => {
+    const rank = { HIGH: 3, MEDIUM: 2, LOW: 1 };
+    return (
+      rank[b.severity] - rank[a.severity] ||
+      b.totalStorageAndDemurrageBrl - a.totalStorageAndDemurrageBrl ||
+      b.lateOrderCount - a.lateOrderCount ||
+      b.totalSpendBrl - a.totalSpendBrl
+    );
+  });
+
+  // 2. Per-Shipment Cost-vs-Order Worthiness & Air/Sea Verdict
+  const rows: ShipmentCostBenefitRow[] = [];
+
+  for (const proc of processes) {
+    const fobBrl = round2(proc.brlFob);
+    const cifBrl = round2(proc.brlCif);
+    const intlFreightBrl = round2(proc.brlFrete);
+    const insuranceBrl = round2(
+      proc.items.reduce((s, i) => s + i.FUP_TOTAL_SEGURO_FISCAL_ITEM, 0)
+    );
+    const storageBrl = round2(proc.armazenagem);
+    const capataziaBrl = round2(
+      Math.max(...proc.items.map((i) => i.FUP_CAPATAZIA_PROCESSO), 0)
+    );
+    const afrmmBrl = round2(proc.afrmm);
+    const truckingBrl = round2(proc.trucking);
+    const brokerFeeBrl = round2(proc.brokerFee);
+    const liFeeBrl = round2(proc.liFee);
+    const ecotaxBrl = round2(proc.ecotax);
+    const demurrageBrl = round2(proc.demurrageTotal);
+    const customsTaxesBrl = round2(proc.impostos);
+
+    const totalLogisticsCostBrl = round2(
+      intlFreightBrl +
+        insuranceBrl +
+        storageBrl +
+        capataziaBrl +
+        afrmmBrl +
+        truckingBrl +
+        brokerFeeBrl +
+        liFeeBrl +
+        ecotaxBrl +
+        demurrageBrl
+    );
+    const totalExtraCostBrl = round2(totalLogisticsCostBrl + customsTaxesBrl);
+    const totalLandedBrl = round2(fobBrl + totalExtraCostBrl);
+    const landedMultiplier = fobBrl > 0 ? round2(totalLandedBrl / fobBrl) : 1;
+
+    const freightPctOverFob = pct(intlFreightBrl, fobBrl);
+    const storagePctOverFob = pct(storageBrl + capataziaBrl, fobBrl);
+    const logisticsPctOverFob = pct(totalLogisticsCostBrl, fobBrl);
+    const taxesPctOverFob = pct(customsTaxesBrl, fobBrl);
+    const totalExtraPctOverFob = pct(totalExtraCostBrl, fobBrl);
+
+    const maxOrderDelayDays = Math.max(
+      ...proc.items.map((i) => i.DIAS_ATRASO_ENTREGA || 0),
+      0
+    );
+    const hasDelayedItem = proc.items.some(
+      (i) => i.STATUS_PRAZO_ENTREGA === 'ATRASADO' || i.DIAS_ATRASO_ENTREGA > 0
+    );
+    const stockPlant0003Total = proc.items.reduce(
+      (s, i) => s + (i.ESTOQUE_SOMA_TRES_CATEGORIAS_PLANTA_0003 || 0),
+      0
+    );
+    const orderedQtyTotal = proc.items.reduce(
+      (s, i) => s + (i.QUANTIDADE_PEDIDA || 0),
+      0
+    );
+    const stockCoveragePct =
+      orderedQtyTotal > 0
+        ? Math.min(100, round2((stockPlant0003Total / orderedQtyTotal) * 100))
+        : 0;
+
+    // Observed avoidable waste strictly from recorded SAP penalty/excess-period storage
+    const excessStorageBrl =
+      proc.periodos > 1 && storageBrl > 0
+        ? round2(storageBrl * ((proc.periodos - 1) / proc.periodos))
+        : proc.status === 'PARADO AG. DRAWBACK' && storageBrl > 0
+          ? storageBrl
+          : 0;
+    const observedAvoidableWasteBrl = round2(demurrageBrl + excessStorageBrl);
+
+    // Linked SKU Historical Trouble Summary
+    const linkedMatCodes = Array.from(
+      new Set(
+        proc.items
+          .map((i) => (i.MATERIAL || i.DESCRICAO_MATERIAL || i.id).trim())
+          .filter(Boolean)
+      )
+    );
+    const linkedProfiles = linkedMatCodes
+      .map((c) => materialTroubleMap.get(c))
+      .filter((p): p is MaterialTroubleProfile => Boolean(p));
+
+    const maxHistOrders = Math.max(...linkedProfiles.map((p) => p.orderCount), 0);
+    const maxLateOrders = Math.max(
+      ...linkedProfiles.map((p) => p.lateOrderCount),
+      0
+    );
+    const maxRepeatAir = Math.max(
+      ...linkedProfiles.map((p) => p.airShipmentCount),
+      0
+    );
+    const maxMissingAc = Math.max(
+      ...linkedProfiles.map((p) => p.missingAcCount),
+      0
+    );
+    const histDelays = linkedProfiles
+      .map((p) => p.avgDelayDays)
+      .filter((d) => d > 0);
+    const historicalDelayAvgDays =
+      histDelays.length > 0
+        ? round2(histDelays.reduce((s, d) => s + d, 0) / histDelays.length)
+        : 0;
+    const combinedSignals = Array.from(
+      new Set(linkedProfiles.flatMap((p) => p.troubleSignals))
+    );
+    const hasRecurringTrouble = linkedProfiles.some(
+      (p) => p.severity !== 'LOW' && p.troubleSignals.length > 0
+    );
+
+    const itemTroubleSummary: ShipmentItemTroubleSummary = {
+      hasRecurringTrouble,
+      lateOrderCount: maxLateOrders,
+      totalHistoricalOrders: maxHistOrders,
+      repeatAirCount: maxRepeatAir,
+      historicalDelayAvgDays,
+      missingAcOrders: maxMissingAc,
+      affectedMaterials: linkedProfiles
+        .filter((p) => p.troubleSignals.length > 0)
+        .map((p) => `${p.materialCode} — ${p.descPt}`),
+      troubleSignals: combinedSignals,
+    };
+
+    // Air vs Sea Evaluation
+    const isAir =
+      proc.modal === 'AÉREO' ||
+      proc.items.some((i) => i.FUP_TIPO_EMBARQUE === 'A');
+    const isStalledInCustoms =
+      proc.status === 'PARADO AG. DRAWBACK' ||
+      (proc.days > 10 && proc.desCi === '-');
+
+    let airEvaluation: ShipmentAirEvaluation;
+    if (!isAir) {
+      airEvaluation = {
+        isAir: false,
+        verdict: 'NOT_APPLICABLE',
+        headline: `${proc.modal || 'MARÍTIMO'} Modal`,
+        rationale:
+          proc.periodos >= 2 || demurrageBrl > 0
+            ? `Consolidated ${proc.modal.toLowerCase()} freight (${freightPctOverFob}% of FOB), but port dwell (${proc.days}d / ${proc.periodos} periods) eroded modal savings.`
+            : `Freight at ${freightPctOverFob}% of FOB with controlled ${proc.modal.toLowerCase()} execution.`,
+        freightPctOverFob,
+        airportDwellDays: proc.days,
+        stockCoveragePct,
+      };
+    } else if (
+      isStalledInCustoms ||
+      (freightPctOverFob >= 15 && stockCoveragePct >= 50) ||
+      (freightPctOverFob >= 15 && hasDelayedItem && proc.days > 7) ||
+      (maxRepeatAir >= 2 && freightPctOverFob >= 12)
+    ) {
+      const reasons: string[] = [];
+      if (isStalledInCustoms) {
+        reasons.push(
+          `cargo stalled at airport terminal (${proc.days}d, ${proc.status}) burning airport storage`
+        );
+      }
+      if (stockCoveragePct >= 30) {
+        reasons.push(
+          `Plant 0003 already held ${stockCoveragePct}% stock coverage (${stockPlant0003Total} un)`
+        );
+      }
+      if (hasDelayedItem) {
+        reasons.push(`order still missed delivery SLA (+${maxOrderDelayDays}d)`);
+      }
+      if (maxRepeatAir >= 2) {
+        reasons.push(`SKU shipped by Air ${maxRepeatAir} times`);
+      }
+      airEvaluation = {
+        isAir: true,
+        verdict: 'AVOIDABLE_AIR',
+        headline: 'Air Speed Wasted — Bad Modal ROI',
+        rationale: `Paid ${freightPctOverFob}% Air freight/FOB, yet ${reasons.join('; ') || 'dwell wiped out speed gains'}. Sea consolidation or pre-cleared AC would have saved substantial cost.`,
+        freightPctOverFob,
+        airportDwellDays: proc.days,
+        stockCoveragePct,
+      };
+    } else if (
+      freightPctOverFob >= 10 ||
+      proc.days > 10 ||
+      stockCoveragePct >= 50 ||
+      hasDelayedItem
+    ) {
+      airEvaluation = {
+        isAir: true,
+        verdict: 'QUESTIONABLE_AIR',
+        headline: 'Borderline Air Choice — Review Urgency',
+        rationale: `Air freight consumed ${freightPctOverFob}% of FOB with ${proc.days}d airport dwell and ${stockCoveragePct}% Plant 0003 coverage. Confirm critical factory shortage before repeating Air.`,
+        freightPctOverFob,
+        airportDwellDays: proc.days,
+        stockCoveragePct,
+      };
+    } else {
+      airEvaluation = {
+        isAir: true,
+        verdict: 'JUSTIFIED_AIR',
+        headline: 'Air Justified — Fast Clearance & SLA Met',
+        rationale: `Controlled air freight (${freightPctOverFob}% of FOB), fast ${proc.transitTime || 3}d transit and ${proc.days}d clearance with zero delivery delay.`,
+        freightPctOverFob,
+        airportDwellDays: proc.days,
+        stockCoveragePct,
+      };
+    }
+
+    // Check Drawback-eligible NCM without AC
+    const hasMissingDrawbackAc = proc.items.some((i) => {
+      const elig = i.FUP_NCMS
+        .split(',')
+        .some((n) => isDrawbackExpectedNcm(n.trim()));
+      return elig && !i.FUP_ATO_CONCESSORIO;
+    });
+    const isExw = (proc.incoterm || '').toUpperCase().startsWith('EXW');
+
+    // Recommendations Engine (concrete Comex + Purchasing fixes)
+    const recommendations: CostOptimizationAction[] = [];
+
+    if (hasMissingDrawbackAc || proc.status === 'PARADO AG. DRAWBACK') {
+      recommendations.push({
+        code: 'LINK_DRAWBACK_AC',
+        category: 'DRAWBACK_AC',
+        priority: 'HIGH',
+        title: 'Pre-link Drawback Ato Concessório before ETD',
+        detail: `Process holds eligible NCM without linked AC (${proc.status}). Attaching AC prior to arrival avoids customs suspension holds and extra terminal storage (${storageBrl > 0 ? `R$ ${storageBrl.toLocaleString('pt-BR')}` : 'pending terminal fees'}).`,
+        observedWasteBrl: excessStorageBrl,
+      });
+    }
+
+    if (airEvaluation.verdict === 'AVOIDABLE_AIR') {
+      recommendations.push({
+        code: 'SHIFT_AIR_TO_SEA',
+        category: 'MODAL',
+        priority: 'HIGH',
+        title: 'Avoid reactive Air Freight — shift recurring SKU to Sea LCL/FCL',
+        detail:
+          airEvaluation.rationale +
+          ' Trigger PO release 45 days earlier in MRP so Sea modal satisfies production date.',
+        observedWasteBrl: excessStorageBrl,
+      });
+    } else if (airEvaluation.verdict === 'QUESTIONABLE_AIR') {
+      recommendations.push({
+        code: 'AUDIT_AIR_TRIGGER',
+        category: 'MODAL',
+        priority: 'MEDIUM',
+        title: 'Require Plant-0003 stockout sign-off before approving Air booking',
+        detail: `Plant 0003 holds ${stockPlant0003Total} units (${stockCoveragePct}% of PO qty). Verify line-stop risk before paying Air premium (${freightPctOverFob}% of FOB).`,
+        observedWasteBrl: 0,
+      });
+    }
+
+    if (demurrageBrl > 0) {
+      recommendations.push({
+        code: 'NEGOTIATE_DEMURRAGE_FT',
+        category: 'STORAGE_PORT',
+        priority: 'HIGH',
+        title: 'Eliminate Container Demurrage via 21d Free-Time & fast return',
+        detail: `Process recorded R$ ${demurrageBrl.toLocaleString('pt-BR')} in demurrage. Negotiate >=21d combined free-time with carrier and prioritize empty container return post-MIGO.`,
+        observedWasteBrl: demurrageBrl,
+      });
+    } else if (proc.periodos >= 2) {
+      recommendations.push({
+        code: 'PRE_CLEAR_PERIOD_1',
+        category: 'STORAGE_PORT',
+        priority: 'HIGH',
+        title: `Cut port/airport storage (${proc.periodos} periods / ${proc.days}d) down to Period 1`,
+        detail: `Cargo crossed into Storage Period ${proc.periodos}. Pre-file DI draft, validate NCM docs, and advance Numerário 5 days before ETA to release within 10 days.`,
+        observedWasteBrl: excessStorageBrl,
+      });
+    }
+
+    if (isExw) {
+      recommendations.push({
+        code: 'INCOTERM_EXW_TO_FCA',
+        category: 'INCOTERM',
+        priority: 'MEDIUM',
+        title: 'Renegotiate Incoterm from EXW to FCA/FOB',
+        detail:
+          'EXW forces MFX to pay origin inland pickup, export customs clearance, and destination handling add-ons. Switching to FCA at next RFQ cuts origin fees.',
+        observedWasteBrl: 0,
+      });
+    }
+
+    if (hasRecurringTrouble && maxLateOrders >= 1) {
+      recommendations.push({
+        code: 'SUPPLIER_SLA_REVIEW',
+        category: 'SUPPLIER_SLA',
+        priority: maxLateOrders >= 2 || maxOrderDelayDays >= 14 ? 'HIGH' : 'MEDIUM',
+        title: 'Address recurring supplier/SKU delay risk on future POs',
+        detail: `${proc.exporter} / SKU had ${maxLateOrders} late order(s) (avg delay ${historicalDelayAvgDays || maxOrderDelayDays}d). Enforce contractual delivery SLA, add buffer lead time, or qualify dual source.`,
+        observedWasteBrl: 0,
+      });
+    }
+
+    if (proc.canal === 'VERMELHO' || proc.canal === 'AMARELO') {
+      recommendations.push({
+        code: 'CHANNEL_DOC_COMPLIANCE',
+        category: 'PURCHASING_BATCH',
+        priority: 'MEDIUM',
+        title: `Pre-audit NCM & Invoice specs (${proc.canal} Channel)`,
+        detail: `Parametrized in ${proc.canal} channel, increasing inspection dwell (${proc.days}d). Standardize bilingual technical catalog & certificate package with exporter before ETD.`,
+        observedWasteBrl: 0,
+      });
+    }
+
+    // Executive Worthiness Verdict (separating controllable logistics/modal failures from statutory taxes)
+    const worthinessReasons: string[] = [];
+    const isNotWorthIt =
+      logisticsPctOverFob >= 22 ||
+      demurrageBrl > 0 ||
+      airEvaluation.verdict === 'AVOIDABLE_AIR' ||
+      (proc.periodos >= 3 && storagePctOverFob >= 3);
+
+    const isReview =
+      !isNotWorthIt &&
+      (totalExtraPctOverFob >= 45 ||
+        logisticsPctOverFob >= 12 ||
+        proc.periodos >= 2 ||
+        hasMissingDrawbackAc ||
+        airEvaluation.verdict === 'QUESTIONABLE_AIR' ||
+        (hasRecurringTrouble && maxLateOrders >= 2));
+
+    const worthinessVerdict: ShipmentWorthinessVerdict = isNotWorthIt
+      ? 'NOT_WORTH_IT'
+      : isReview
+        ? 'REVIEW'
+        : 'EFFICIENT';
+
+    if (logisticsPctOverFob >= 22) {
+      worthinessReasons.push(
+        `Logistics & port fees consumed ${logisticsPctOverFob}% of Order FOB`
+      );
+    } else if (logisticsPctOverFob >= 12) {
+      worthinessReasons.push(
+        `Elevated logistics cost ratio (${logisticsPctOverFob}% of FOB)`
+      );
+    }
+
+    if (totalExtraPctOverFob >= 45) {
+      worthinessReasons.push(
+        `High total landed burden (+${totalExtraPctOverFob}% w/ SAP taxes — review Drawback/sourcing)`
+      );
+    } else if (totalExtraPctOverFob >= 25) {
+      worthinessReasons.push(
+        `Elevated total extra burden (${totalExtraPctOverFob}% over FOB)`
+      );
+    }
+
+    if (demurrageBrl > 0) {
+      worthinessReasons.push(
+        `Container demurrage incurred (R$ ${demurrageBrl.toLocaleString('pt-BR')})`
+      );
+    }
+    if (airEvaluation.verdict === 'AVOIDABLE_AIR') {
+      worthinessReasons.push('Air freight premium wasted (blocked/unnecessary urgency)');
+    } else if (airEvaluation.verdict === 'QUESTIONABLE_AIR') {
+      worthinessReasons.push('Air freight urgency needs confirmation');
+    }
+    if (proc.periodos >= 2) {
+      worthinessReasons.push(
+        `Extended terminal storage (${proc.periodos} periods · ${proc.days}d)`
+      );
+    }
+    if (hasMissingDrawbackAc) {
+      worthinessReasons.push('Eligible NCM shipped without Drawback AC');
+    }
+    if (worthinessReasons.length === 0) {
+      worthinessReasons.push(
+        `Controlled extra cost (${totalExtraPctOverFob}% over FOB) with clean clearance`
+      );
+    }
+
+    rows.push({
+      ref: proc.ref,
+      poList: proc.poList,
+      exporter: proc.exporter,
+      pepProject: proc.linha,
+      modal: proc.modal,
+      incoterm: proc.incoterm,
+      status: proc.status,
+      canal: proc.canal,
+      etd: proc.etd,
+      eta: proc.eta,
+      fobBrl,
+      cifBrl,
+      intlFreightBrl,
+      insuranceBrl,
+      storageBrl,
+      capataziaBrl,
+      afrmmBrl,
+      truckingBrl,
+      brokerFeeBrl,
+      liFeeBrl,
+      ecotaxBrl,
+      demurrageBrl,
+      customsTaxesBrl,
+      totalLogisticsCostBrl,
+      totalExtraCostBrl,
+      totalLandedBrl,
+      landedMultiplier,
+      freightPctOverFob,
+      storagePctOverFob,
+      logisticsPctOverFob,
+      taxesPctOverFob,
+      totalExtraPctOverFob,
+      daysInPort: proc.days,
+      periodos: proc.periodos,
+      transitTime: proc.transitTime,
+      leadTime: proc.leadTime,
+      maxOrderDelayDays,
+      stockPlant0003Total,
+      observedAvoidableWasteBrl,
+      worthinessVerdict,
+      worthinessReasons,
+      airEvaluation,
+      itemTroubleSummary,
+      recommendations,
+      process: proc,
+    });
+  }
+
+  // Sort critical Overruns first, then Review, then Efficient, ordered by extra cost %
+  const verdictOrder: Record<ShipmentWorthinessVerdict, number> = {
+    NOT_WORTH_IT: 0,
+    REVIEW: 1,
+    EFFICIENT: 2,
+  };
+  rows.sort(
+    (a, b) =>
+      verdictOrder[a.worthinessVerdict] - verdictOrder[b.worthinessVerdict] ||
+      b.observedAvoidableWasteBrl - a.observedAvoidableWasteBrl ||
+      b.totalExtraPctOverFob - a.totalExtraPctOverFob ||
+      a.ref.localeCompare(b.ref)
+  );
+
+  const totalFobBrl = round2(rows.reduce((s, r) => s + r.fobBrl, 0));
+  const totalLogisticsCostBrl = round2(
+    rows.reduce((s, r) => s + r.totalLogisticsCostBrl, 0)
+  );
+  const totalTaxesBrl = round2(rows.reduce((s, r) => s + r.customsTaxesBrl, 0));
+  const totalExtraCostBrl = round2(
+    rows.reduce((s, r) => s + r.totalExtraCostBrl, 0)
+  );
+  const totalLandedBrl = round2(rows.reduce((s, r) => s + r.totalLandedBrl, 0));
+
+  const totalIntlFreight = round2(
+    rows.reduce((s, r) => s + r.intlFreightBrl, 0)
+  );
+  const totalStorageAndCapatazia = round2(
+    rows.reduce((s, r) => s + r.storageBrl + r.capataziaBrl, 0)
+  );
+  const totalDemurrage = round2(rows.reduce((s, r) => s + r.demurrageBrl, 0));
+  const totalOtherFees = round2(
+    rows.reduce(
+      (s, r) =>
+        s +
+        r.insuranceBrl +
+        r.afrmmBrl +
+        r.truckingBrl +
+        r.brokerFeeBrl +
+        r.liFeeBrl +
+        r.ecotaxBrl,
+      0
+    )
+  );
+
+  const airRows = rows.filter((r) => r.airEvaluation.isAir);
+  const troubleSkus = materialTroubles.filter((m) => m.troubleSignals.length > 0);
+
+  return {
+    rows,
+    materialTroubles,
+    summary: {
+      totalShipments: rows.length,
+      totalFobBrl,
+      totalLogisticsCostBrl,
+      totalTaxesBrl,
+      totalExtraCostBrl,
+      totalLandedBrl,
+      weightedExtraPctOverFob: pct(totalExtraCostBrl, totalFobBrl),
+      weightedLogisticsPctOverFob: pct(totalLogisticsCostBrl, totalFobBrl),
+      efficientCount: rows.filter((r) => r.worthinessVerdict === 'EFFICIENT').length,
+      reviewCount: rows.filter((r) => r.worthinessVerdict === 'REVIEW').length,
+      notWorthItCount: rows.filter((r) => r.worthinessVerdict === 'NOT_WORTH_IT')
+        .length,
+      airShipmentCount: airRows.length,
+      justifiedAirCount: airRows.filter(
+        (r) => r.airEvaluation.verdict === 'JUSTIFIED_AIR'
+      ).length,
+      questionableOrAvoidableAirCount: airRows.filter(
+        (r) =>
+          r.airEvaluation.verdict === 'AVOIDABLE_AIR' ||
+          r.airEvaluation.verdict === 'QUESTIONABLE_AIR'
+      ).length,
+      recurringTroubleSkuCount: troubleSkus.length,
+      highTroubleSkuCount: troubleSkus.filter((m) => m.severity === 'HIGH').length,
+      observedAvoidableWasteBrl: round2(
+        rows.reduce((s, r) => s + r.observedAvoidableWasteBrl, 0)
+      ),
+    },
+    chartCostRatioByProcess: rows.slice(0, 10).map((r) => ({
+      name: r.ref.replace('MFX-000', 'MFX-').replace('MFX-00', 'MFX-'),
+      processRef: r.ref,
+      fobBrl: Math.round(r.fobBrl),
+      logisticsBrl: Math.round(r.totalLogisticsCostBrl),
+      taxesBrl: Math.round(r.customsTaxesBrl),
+      extraPctOverFob: r.totalExtraPctOverFob,
+      verdict: r.worthinessVerdict,
+    })),
+    chartWasteDrivers: [
+      {
+        name: 'Customs Taxes (SAP)',
+        key: 'taxes',
+        valueBrl: totalTaxesBrl,
+        color: '#8b5cf6',
+      },
+      {
+        name: 'Intl Freight',
+        key: 'freight',
+        valueBrl: totalIntlFreight,
+        color: '#06b6d4',
+      },
+      {
+        name: 'Port Storage & Capatazia',
+        key: 'storage',
+        valueBrl: totalStorageAndCapatazia,
+        color: '#f59e0b',
+      },
+      {
+        name: 'Demurrage',
+        key: 'demurrage',
+        valueBrl: totalDemurrage,
+        color: '#ef4444',
+      },
+      {
+        name: 'Insurance & Local Fees',
+        key: 'other',
+        valueBrl: totalOtherFees,
+        color: '#64748b',
+      },
+    ],
+  };
+}
+
+export function buildComexChartsAnalytics(
+  items: FupItemRow[],
+  processes: ShipmentProcessRow[]
+): ComexChartsAnalyticsResult {
+  const round1 = (v: number): number =>
+    Math.round((Number.isFinite(v) ? v : 0) * 10) / 10;
+  const round2 = (v: number): number =>
+    Math.round((Number.isFinite(v) ? v : 0) * 100) / 100;
+
+  const nonDeleted = items.filter(
+    (i) => i.LOEKZ !== 'L' && i.STATUS_PRAZO_ENTREGA !== 'ITEM EXCLUIDO'
+  );
+
+  const totalShipments = processes.length;
+  const uniquePoSet = new Set(nonDeleted.map((i) => i.PEDIDO).filter(Boolean));
+  const totalPoCount = uniquePoSet.size;
+  const totalItemLines = nonDeleted.length;
+  const registeredDiCount = processes.filter((p) => p.canal !== '-').length;
+
+  // 1. Quantity of Shipments by Operational Stage
+  const stageOrder: Array<{ stage: ShipmentOperationalStatus; color: string }> = [
+    { stage: 'AG. PRONTIDAO DA CARGA', color: '#64748b' },
+    { stage: 'EM TRÂNSITO', color: '#06b6d4' },
+    { stage: 'AG. DESEMBARAÇO', color: '#f59e0b' },
+    { stage: 'PARADO AG. DRAWBACK', color: '#f43f5e' },
+    { stage: 'ENTREGUE', color: '#10b981' },
+  ];
+
+  const shipmentsByStage = stageOrder.map(({ stage, color }) => {
+    const matched = processes.filter((p) => p.status === stage);
+    const count = matched.length;
+    const pct = totalShipments > 0 ? round1((count / totalShipments) * 100) : 0;
+    const fobBrl = round2(matched.reduce((s, p) => s + p.brlFob, 0));
+    return { stage, count, pct, fobBrl, color };
+  });
+
+  // 2. Channels of Customs (DI Parametrization)
+  const channelOrder: Array<{
+    key: 'VERDE' | 'AMARELO' | 'VERMELHO' | 'CINZA' | '-';
+    color: string;
+  }> = [
+    { key: 'VERDE', color: '#10b981' },
+    { key: 'AMARELO', color: '#f59e0b' },
+    { key: 'VERMELHO', color: '#f43f5e' },
+    { key: 'CINZA', color: '#64748b' },
+    { key: '-', color: '#06b6d4' },
+  ];
+
+  const customsChannels = channelOrder.map(({ key, color }) => {
+    const matched = processes.filter((p) => p.canal === key);
+    const count = matched.length;
+    const pct = totalShipments > 0 ? round1((count / totalShipments) * 100) : 0;
+    const fobBrl = round2(matched.reduce((s, p) => s + p.brlFob, 0));
+    return { key, count, pct, fobBrl, color };
+  });
+
+  // 3. Quantity of Containers & Modal Mix
+  const total20Cntr = processes.reduce((s, p) => s + p.c20, 0);
+  const total40Cntr = processes.reduce((s, p) => s + p.c40, 0);
+  const totalContainers = total20Cntr + total40Cntr;
+  const totalTeus = total20Cntr + total40Cntr * 2;
+  const seaShipments = processes.filter((p) => p.modal === 'MARÍTIMO').length;
+  const airShipments = processes.filter((p) => p.modal === 'AÉREO').length;
+  const roadShipments = processes.filter((p) => p.modal === 'RODOVIÁRIO').length;
+
+  const containerMix: ComexChartsAnalyticsResult['containerMix'] = [
+    { key: 'CNTR_20', count: total20Cntr, color: '#06b6d4' },
+    { key: 'CNTR_40', count: total40Cntr, color: '#6366f1' },
+    { key: 'TEUS', count: totalTeus, color: '#3b82f6' },
+    { key: 'SEA', count: seaShipments, color: '#10b981' },
+    { key: 'AIR', count: airShipments, color: '#f59e0b' },
+  ];
+  if (roadShipments > 0) {
+    containerMix.push({ key: 'ROAD', count: roadShipments, color: '#8b5cf6' });
+  }
+
+  const containersByProcess = processes.map((p) => ({
+    processRef: p.ref,
+    shortRef: p.ref.replace(/^MFX-0*/i, 'MFX-'),
+    c20: p.c20,
+    c40: p.c40,
+    teus: p.c20 + p.c40 * 2,
+    modal: p.modal,
+  }));
+
+  // 4. Costs of Freight (BRL)
+  const totalIntlFreightBrl = round2(processes.reduce((s, p) => s + p.brlFrete, 0));
+  const totalNationalFreightBrl = round2(processes.reduce((s, p) => s + p.trucking, 0));
+  const totalFreightBrl = round2(totalIntlFreightBrl + totalNationalFreightBrl);
+  const totalShippedFobBrl = round2(processes.reduce((s, p) => s + p.brlFob, 0));
+  const freightPctOfFob =
+    totalShippedFobBrl > 0 ? round1((totalFreightBrl / totalShippedFobBrl) * 100) : 0;
+
+  const freightByProcess = processes.map((p) => {
+    const intlFreightBrl = round2(p.brlFrete);
+    const natFreightBrl = round2(p.trucking);
+    const procTotalFreight = round2(intlFreightBrl + natFreightBrl);
+    const freightPctFob = p.brlFob > 0 ? round1((procTotalFreight / p.brlFob) * 100) : 0;
+    return {
+      processRef: p.ref,
+      shortRef: p.ref.replace(/^MFX-0*/i, 'MFX-'),
+      exporterShort: p.exporter.split(' ')[0] || '-',
+      modal: p.modal,
+      intlFreightBrl,
+      natFreightBrl,
+      totalFreightBrl: procTotalFreight,
+      freightPctFob,
+    };
+  });
+
+  // 5. Tax (Strict SAP Recorded Customs Taxes — never guess or estimate when SAP is 0)
+  const iiBrl = round2(nonDeleted.reduce((s, i) => s + i.FUP_TOTAL_II_ITEM, 0));
+  const ipiBrl = round2(nonDeleted.reduce((s, i) => s + i.FUP_TOTAL_IPI_ITEM, 0));
+  const pisBrl = round2(nonDeleted.reduce((s, i) => s + i.FUP_TOTAL_PIS_ITEM, 0));
+  const cofinsBrl = round2(nonDeleted.reduce((s, i) => s + i.FUP_TOTAL_COFINS_ITEM, 0));
+  const icmsBrl = round2(nonDeleted.reduce((s, i) => s + i.FUP_TOTAL_ICMS_ITEM, 0));
+  const siscomexBrl = round2(nonDeleted.reduce((s, i) => s + i.FUP_TOTAL_SISCOMEX_ITEM, 0));
+  const afrmmBrl = round2(processes.reduce((s, p) => s + p.afrmm, 0));
+  const totalTaxesBrl = round2(
+    iiBrl + ipiBrl + pisBrl + cofinsBrl + icmsBrl + siscomexBrl + afrmmBrl
+  );
+
+  const taxByType: ComexChartsAnalyticsResult['taxByType'] = [
+    { key: 'ICMS', valueBrl: icmsBrl, color: '#8b5cf6' },
+    { key: 'II', valueBrl: iiBrl, color: '#06b6d4' },
+    { key: 'COFINS', valueBrl: cofinsBrl, color: '#3b82f6' },
+    { key: 'IPI', valueBrl: ipiBrl, color: '#f59e0b' },
+    { key: 'PIS', valueBrl: pisBrl, color: '#10b981' },
+    { key: 'SISCOMEX', valueBrl: siscomexBrl, color: '#ec4899' },
+    { key: 'AFRMM', valueBrl: afrmmBrl, color: '#64748b' },
+  ];
+
+  const taxByProcess = processes.map((p) => {
+    const pIi = round2(p.items.reduce((s, i) => s + i.FUP_TOTAL_II_ITEM, 0));
+    const pIpi = round2(p.items.reduce((s, i) => s + i.FUP_TOTAL_IPI_ITEM, 0));
+    const pPisCofins = round2(
+      p.items.reduce((s, i) => s + i.FUP_TOTAL_PIS_ITEM + i.FUP_TOTAL_COFINS_ITEM, 0)
+    );
+    const pIcms = round2(p.items.reduce((s, i) => s + i.FUP_TOTAL_ICMS_ITEM, 0));
+    const pSisAfrmm = round2(
+      p.items.reduce((s, i) => s + i.FUP_TOTAL_SISCOMEX_ITEM, 0) + p.afrmm
+    );
+    const pTotal = round2(pIi + pIpi + pPisCofins + pIcms + pSisAfrmm);
+    return {
+      processRef: p.ref,
+      shortRef: p.ref.replace(/^MFX-0*/i, 'MFX-'),
+      regime: p.regTrib,
+      iiBrl: pIi,
+      ipiBrl: pIpi,
+      pisCofinsBrl: pPisCofins,
+      icmsBrl: pIcms,
+      siscomexAfrmmBrl: pSisAfrmm,
+      totalTaxesBrl: pTotal,
+    };
+  });
+
+  // 6. Delays Totalized
+  const onTimeLines = nonDeleted.filter((i) => i.STATUS_PRAZO_ENTREGA === 'NO PRAZO');
+  const completedLines = nonDeleted.filter(
+    (i) => i.STATUS_PRAZO_ENTREGA === 'ENTREGA CONCLUIDA SAP'
+  );
+  const delayedLines = nonDeleted.filter(
+    (i) => i.STATUS_PRAZO_ENTREGA === 'ATRASADO' || i.DIAS_ATRASO_ENTREGA > 0
+  );
+  const delayedPoSet = new Set(delayedLines.map((i) => i.PEDIDO).filter(Boolean));
+  const delayedPoCount = delayedPoSet.size;
+  const delayedLineCount = delayedLines.length;
+  const totalDelayDays = delayedLines.reduce(
+    (s, i) => s + Math.max(0, i.DIAS_ATRASO_ENTREGA),
+    0
+  );
+  const avgDelayDays =
+    delayedLineCount > 0 ? round1(totalDelayDays / delayedLineCount) : 0;
+  const maxDelayDays =
+    delayedLineCount > 0
+      ? Math.max(...delayedLines.map((i) => Math.max(0, i.DIAS_ATRASO_ENTREGA)))
+      : 0;
+  const onTimeRatePct =
+    nonDeleted.length > 0
+      ? round1(((onTimeLines.length + completedLines.length) / nonDeleted.length) * 100)
+      : 100;
+
+  const delaysByStatus: ComexChartsAnalyticsResult['delaysByStatus'] = [
+    {
+      statusKey: 'ON_TIME',
+      lineCount: onTimeLines.length,
+      totalDelayDays: 0,
+      color: '#06b6d4',
+    },
+    {
+      statusKey: 'COMPLETED',
+      lineCount: completedLines.length,
+      totalDelayDays: 0,
+      color: '#10b981',
+    },
+    {
+      statusKey: 'DELAYED',
+      lineCount: delayedLineCount,
+      totalDelayDays,
+      color: '#f43f5e',
+    },
+  ];
+
+  const poDelayMap = new Map<
+    string,
+    {
+      poNumber: string;
+      processRef: string;
+      supplierShort: string;
+      delayDays: number;
+      pendingQty: number;
+      valueBrl: number;
+    }
+  >();
+  for (const item of nonDeleted) {
+    const po = item.PEDIDO || item.id;
+    const fx =
+      item.MOEDA === 'BRL'
+        ? 1
+        : item.MOEDA === 'EUR'
+          ? item.FUP_TAXA_EURO_PROCESSO || 6.12
+          : item.FUP_TAXA_DOLAR_PROCESSO || 5.65;
+    const valBrl =
+      item.FUP_VALOR_MERCADORIA > 0
+        ? item.FUP_VALOR_MERCADORIA
+        : item.FUP_VALOR_FOB_REAIS_PROCESSO > 0
+          ? item.FUP_VALOR_FOB_REAIS_PROCESSO
+          : item.VALOR_LIQUIDO * fx;
+    const existing = poDelayMap.get(po);
+    if (!existing) {
+      poDelayMap.set(po, {
+        poNumber: po,
+        processRef: item.ULTIMO_PROCESSO_IMPORTACAO || '-',
+        supplierShort: (item.NOME_FORNECEDOR || '-').split(' ')[0],
+        delayDays: Math.max(0, item.DIAS_ATRASO_ENTREGA),
+        pendingQty: Math.max(0, item.QUANTIDADE_PENDENTE),
+        valueBrl: round2(valBrl),
+      });
+    } else {
+      existing.delayDays = Math.max(existing.delayDays, Math.max(0, item.DIAS_ATRASO_ENTREGA));
+      existing.pendingQty += Math.max(0, item.QUANTIDADE_PENDENTE);
+      existing.valueBrl = round2(existing.valueBrl + valBrl);
+    }
+  }
+
+  const delaysByPo = Array.from(poDelayMap.values())
+    .sort((a, b) => b.delayDays - a.delayDays || b.pendingQty - a.pendingQty)
+    .slice(0, 8);
+
+  // 7. Time of Customs Clearance (Days)
+  const clearanceSamples: number[] = [];
+  const clearanceByProcess = processes.map((p) => {
+    const first = p.items[0];
+    const presencaIso = first?.FUP_DATA_PRESENCA_CARGA || '';
+    const diIso = first?.DATA_DI || '';
+    const desIso = first?.DATA_DESEMBARACO || '';
+
+    const isCleared = Boolean(desIso);
+    const presenceToDiDays =
+      presencaIso && diIso ? Math.max(0, daysBetween(presencaIso, diIso)) : 0;
+    const diToReleaseDays =
+      diIso && desIso
+        ? Math.max(1, daysBetween(diIso, desIso))
+        : !isCleared && diIso && presencaIso
+          ? Math.max(1, p.days - presenceToDiDays)
+          : 0;
+    const totalClearanceDays =
+      presencaIso && desIso
+        ? Math.max(1, daysBetween(presencaIso, desIso))
+        : p.days;
+
+    if (isCleared && totalClearanceDays > 0) {
+      clearanceSamples.push(totalClearanceDays);
+    }
+
+    const color =
+      p.canal === 'VERDE'
+        ? '#10b981'
+        : p.canal === 'AMARELO'
+          ? '#f59e0b'
+          : p.canal === 'VERMELHO'
+            ? '#f43f5e'
+            : '#06b6d4';
+
+    return {
+      processRef: p.ref,
+      shortRef: p.ref.replace(/^MFX-0*/i, 'MFX-'),
+      canal: p.canal,
+      presenceToDiDays,
+      diToReleaseDays,
+      totalClearanceDays,
+      isCleared,
+      color,
+    };
+  });
+
+  const avgClearanceDays =
+    clearanceSamples.length > 0
+      ? round1(clearanceSamples.reduce((s, d) => s + d, 0) / clearanceSamples.length)
+      : 0;
+  const clearedProcessCount = clearanceByProcess.filter((c) => c.isCleared).length;
+
+  // 8. Time of NF Issue & Factory Receiving Turnaround
+  const nfSamples: number[] = [];
+  let nfIssuedCount = 0;
+  let nfPendingCount = 0;
+
+  const nfByProcess = processes.map((p) => {
+    const first = p.items[0];
+    const procJson = first?.processos[0] || {};
+    const desIso = first?.DATA_DESEMBARACO || '';
+    const nfOrRecIso =
+      procJson.DT_NF ||
+      procJson.DATA_NF ||
+      first?.DATA_ENTREGA_MFX ||
+      first?.ULTIMA_DATA_RECEBIMENTO ||
+      '';
+    const hasNfIssued =
+      (p.nfNum && p.nfNum !== '-') ||
+      p.nfStatus === 'EMITIDA' ||
+      p.status === 'ENTREGUE';
+
+    let nfStatusKey: 'ISSUED' | 'PENDING_NF' | 'AWAITING_CLEARANCE';
+    let turnaroundDays = 0;
+    let color = '#64748b';
+
+    if (hasNfIssued) {
+      nfStatusKey = 'ISSUED';
+      nfIssuedCount += 1;
+      turnaroundDays =
+        desIso && nfOrRecIso
+          ? Math.max(1, daysBetween(desIso, nfOrRecIso))
+          : 1;
+      nfSamples.push(turnaroundDays);
+      color = '#10b981';
+    } else if (desIso) {
+      nfStatusKey = 'PENDING_NF';
+      nfPendingCount += 1;
+      turnaroundDays = Math.max(
+        1,
+        daysBetween(desIso, new Date().toISOString().slice(0, 10))
+      );
+      color = '#f59e0b';
+    } else {
+      nfStatusKey = 'AWAITING_CLEARANCE';
+      nfPendingCount += 1;
+      turnaroundDays = p.days;
+      color = '#f43f5e';
+    }
+
+    return {
+      processRef: p.ref,
+      shortRef: p.ref.replace(/^MFX-0*/i, 'MFX-'),
+      nfNumber: p.nfNum !== '-' ? p.nfNum : '-',
+      nfStatusKey,
+      turnaroundDays,
+      color,
+    };
+  });
+
+  const avgNfTurnaroundDays =
+    nfSamples.length > 0
+      ? round1(nfSamples.reduce((s, d) => s + d, 0) / nfSamples.length)
+      : 0;
+
+  const nfStatusOrder: Array<{
+    statusKey: 'ISSUED' | 'PENDING_NF' | 'AWAITING_CLEARANCE';
+    color: string;
+  }> = [
+    { statusKey: 'ISSUED', color: '#10b981' },
+    { statusKey: 'PENDING_NF', color: '#f59e0b' },
+    { statusKey: 'AWAITING_CLEARANCE', color: '#f43f5e' },
+  ];
+
+  const nfStatusSummary = nfStatusOrder.map(({ statusKey, color }) => {
+    const matchedRefs = new Set(
+      nfByProcess.filter((n) => n.nfStatusKey === statusKey).map((n) => n.processRef)
+    );
+    const matchedProcs = processes.filter((p) => matchedRefs.has(p.ref));
+    return {
+      statusKey,
+      count: matchedProcs.length,
+      fobBrl: round2(matchedProcs.reduce((s, p) => s + p.brlFob, 0)),
+      color,
+    };
+  });
+
+  // 9. Time of Delivery (Transit ETD->ETA vs Port/Clearance vs Total Lead Time)
+  const transitSamples: number[] = [];
+  const leadTimeSamples: number[] = [];
+
+  const deliveryByProcess = processes.map((p) => {
+    const transitDays = p.transitTime;
+    const totalLeadTimeDays = p.leadTime > 0 ? p.leadTime : transitDays + p.days;
+    const portAndClearanceDays = Math.max(0, totalLeadTimeDays - transitDays || p.days);
+
+    if (transitDays > 0) transitSamples.push(transitDays);
+    if (totalLeadTimeDays > 0) leadTimeSamples.push(totalLeadTimeDays);
+
+    return {
+      processRef: p.ref,
+      shortRef: p.ref.replace(/^MFX-0*/i, 'MFX-'),
+      modal: p.modal,
+      transitDays,
+      portAndClearanceDays,
+      totalLeadTimeDays,
+    };
+  });
+
+  const avgTransitDays =
+    transitSamples.length > 0
+      ? round1(transitSamples.reduce((s, d) => s + d, 0) / transitSamples.length)
+      : 0;
+  const avgLeadTimeDays =
+    leadTimeSamples.length > 0
+      ? round1(leadTimeSamples.reduce((s, d) => s + d, 0) / leadTimeSamples.length)
+      : 0;
+
+  // 10. Time of Storage (Terminal Dwell Days, 10d Periods & Cost BRL)
+  const storageSamples = processes.map((p) => p.days).filter((d) => d > 0);
+  const avgStorageDays =
+    storageSamples.length > 0
+      ? round1(storageSamples.reduce((s, d) => s + d, 0) / storageSamples.length)
+      : 0;
+  const totalStoragePeriods = processes.reduce((s, p) => s + p.periodos, 0);
+  const totalStorageCostBrl = round2(processes.reduce((s, p) => s + p.armazenagem, 0));
+
+  const storageByProcess = processes.map((p) => ({
+    processRef: p.ref,
+    shortRef: p.ref.replace(/^MFX-0*/i, 'MFX-'),
+    terminal: p.terminal !== '-' ? p.terminal : 'Terminal',
+    storageDays: p.days,
+    storagePeriods: p.periodos,
+    storageCostBrl: round2(p.armazenagem),
+    color: p.periodos >= 3 ? '#f43f5e' : p.periodos === 2 ? '#f59e0b' : '#10b981',
+  }));
+
+  // 11. Invoices Values (BRL by Process + MIRO/FI Financial Settlement Status)
+  const invoicesByProcess: ComexChartsAnalyticsResult['invoicesByProcess'] = processes.map(
+    (p) => {
+      const hasOverdue = p.items.some(
+        (i) =>
+          i.FUP_QTD_MIRO_VENCIDAS > 0 ||
+          i.FUP_STATUS_FINANCEIRO_ATIVAS === 'VENCIDA'
+      );
+      const isPaid =
+        Boolean(p.paid && p.paid !== '-') ||
+        p.items.some((i) => i.FUP_STATUS_FINANCEIRO_ATIVAS === 'COMPENSADA');
+      const miroStatusKey: 'PAID' | 'UPCOMING' | 'OVERDUE' | 'PROJECTED' = hasOverdue
+        ? 'OVERDUE'
+        : isPaid
+          ? 'PAID'
+          : p.miro !== '-'
+            ? 'UPCOMING'
+            : 'PROJECTED';
+      const color =
+        miroStatusKey === 'PAID'
+          ? '#10b981'
+          : miroStatusKey === 'OVERDUE'
+            ? '#f43f5e'
+            : miroStatusKey === 'UPCOMING'
+              ? '#06b6d4'
+              : '#6366f1';
+
+      return {
+        processRef: p.ref,
+        shortRef: p.ref.replace(/^MFX-0*/i, 'MFX-'),
+        exporterShort: p.exporter.split(' ')[0] || '-',
+        currency: p.currency,
+        invoiceOrig: round2(p.invoiceValue),
+        invoiceBrl: round2(p.brlInvoice),
+        cifBrl: round2(p.brlCif),
+        miroStatusKey,
+        color,
+      };
+    }
+  );
+
+  // Also include unshipped open POs in Open PO total and Financial Status
+  let totalOpenPoBrl = 0;
+  for (const item of nonDeleted) {
+    if (!item.ULTIMO_PROCESSO_IMPORTACAO && item.QUANTIDADE_PENDENTE > 0) {
+      const fx =
+        item.MOEDA === 'BRL'
+          ? 1
+          : item.MOEDA === 'EUR'
+            ? item.FUP_TAXA_EURO_PROCESSO || 6.12
+            : item.FUP_TAXA_DOLAR_PROCESSO || 5.65;
+      const ratio =
+        item.QUANTIDADE_PEDIDA > 0
+          ? item.QUANTIDADE_PENDENTE / item.QUANTIDADE_PEDIDA
+          : 1;
+      totalOpenPoBrl += item.VALOR_LIQUIDO * ratio * fx;
+    }
+  }
+  totalOpenPoBrl = round2(totalOpenPoBrl);
+
+  const cashFlowEntries = buildCashFlowData(nonDeleted, processes).filter(
+    (e) => e.source === 'MIRO/FI'
+  );
+  const finStatusOrder: Array<{
+    statusKey: 'PAID' | 'UPCOMING' | 'OVERDUE' | 'PROJECTED';
+    sapStatus: CashFlowEntry['status'];
+    color: string;
+  }> = [
+    { statusKey: 'PAID', sapStatus: 'PAGO', color: '#10b981' },
+    { statusKey: 'UPCOMING', sapStatus: 'A VENCER', color: '#06b6d4' },
+    { statusKey: 'OVERDUE', sapStatus: 'VENCIDA', color: '#f43f5e' },
+    { statusKey: 'PROJECTED', sapStatus: 'PROJETADO', color: '#6366f1' },
+  ];
+
+  const invoicesByFinancialStatus = finStatusOrder.map(
+    ({ statusKey, sapStatus, color }) => {
+      const matched = cashFlowEntries.filter((e) => e.status === sapStatus);
+      return {
+        statusKey,
+        count: matched.length,
+        amountBrl: round2(matched.reduce((s, e) => s + e.amountBrl, 0)),
+        color,
+      };
+    }
+  );
+
+  const totalInvoicesBrl = round2(
+    invoicesByFinancialStatus.reduce((s, f) => s + f.amountBrl, 0) ||
+      totalShippedFobBrl + totalOpenPoBrl
+  );
+
+  // 12. Relevant Department & Team Results (PEP Projects + Drawback Coverage + Team Performance)
+  let drawbackFobBrl = 0;
+  let fullTaxFobBrl = 0;
+
+  const pepMap = new Map<
+    string,
+    {
+      pepCode: string;
+      pepLabel: string;
+      drawbackBrl: number;
+      fullTaxBrl: number;
+      orderedQty: number;
+      receivedQty: number;
+    }
+  >();
+
+  for (const item of nonDeleted) {
+    const fx =
+      item.MOEDA === 'BRL'
+        ? 1
+        : item.MOEDA === 'EUR'
+          ? item.FUP_TAXA_EURO_PROCESSO || 6.12
+          : item.FUP_TAXA_DOLAR_PROCESSO || 5.65;
+    const fobBrl =
+      item.FUP_VALOR_MERCADORIA > 0
+        ? item.FUP_VALOR_MERCADORIA
+        : item.FUP_VALOR_FOB_REAIS_PROCESSO > 0
+          ? item.FUP_VALOR_FOB_REAIS_PROCESSO
+          : item.VALOR_LIQUIDO * fx;
+
+    if (item.FUP_ATO_CONCESSORIO) {
+      drawbackFobBrl += fobBrl;
+    } else {
+      fullTaxFobBrl += fobBrl;
+    }
+
+    const pepCode = item.ELEMENTO_PEP_INTERNO || 'GERAL';
+    const pepDesc = item.DESCRICAO_ELEMENTO_PEP || pepCode;
+    const entry = pepMap.get(pepCode) || {
+      pepCode,
+      pepLabel: pepDesc.length > 22 ? pepDesc.slice(0, 22) : pepDesc,
+      drawbackBrl: 0,
+      fullTaxBrl: 0,
+      orderedQty: 0,
+      receivedQty: 0,
+    };
+
+    if (item.FUP_ATO_CONCESSORIO) {
+      entry.drawbackBrl += fobBrl;
+    } else {
+      entry.fullTaxBrl += fobBrl;
+    }
+    entry.orderedQty += Math.max(0, item.QUANTIDADE_PEDIDA);
+    entry.receivedQty += Math.max(0, item.QUANTIDADE_RECEBIDA_LIQUIDA);
+    pepMap.set(pepCode, entry);
+  }
+
+  drawbackFobBrl = round2(drawbackFobBrl);
+  fullTaxFobBrl = round2(fullTaxFobBrl);
+  const totalFobAll = drawbackFobBrl + fullTaxFobBrl;
+  const drawbackCoveragePct =
+    totalFobAll > 0 ? round1((drawbackFobBrl / totalFobAll) * 100) : 0;
+
+  const pepProjectsChart = Array.from(pepMap.values())
+    .map((p) => {
+      const dbk = round2(p.drawbackBrl);
+      const full = round2(p.fullTaxBrl);
+      return {
+        pepCode: p.pepCode,
+        pepLabel: p.pepLabel,
+        drawbackBrl: dbk,
+        fullTaxBrl: full,
+        totalFobBrl: round2(dbk + full),
+        receivedPct:
+          p.orderedQty > 0 ? round1((p.receivedQty / p.orderedQty) * 100) : 0,
+      };
+    })
+    .sort((a, b) => b.totalFobBrl - a.totalFobBrl);
+
+  // Team Results (Comex Analysts + Purchasing Buyers)
+  const teamMap = new Map<
+    string,
+    {
+      memberName: string;
+      roleKey: 'ANALYST' | 'BUYER';
+      refs: Set<string>;
+      onTimeCount: number;
+      delayedCount: number;
+      fobBrl: number;
+    }
+  >();
+
+  for (const p of processes) {
+    const analyst = (p.resp || 'COMEX').trim();
+    const key = `ANALYST::${analyst}`;
+    const entry = teamMap.get(key) || {
+      memberName: analyst,
+      roleKey: 'ANALYST' as const,
+      refs: new Set<string>(),
+      onTimeCount: 0,
+      delayedCount: 0,
+      fobBrl: 0,
+    };
+    entry.refs.add(p.ref);
+    const hasDelay = p.items.some(
+      (i) => i.STATUS_PRAZO_ENTREGA === 'ATRASADO' || i.DIAS_ATRASO_ENTREGA > 0
+    );
+    if (hasDelay) entry.delayedCount += 1;
+    else entry.onTimeCount += 1;
+    entry.fobBrl += p.brlFob;
+    teamMap.set(key, entry);
+  }
+
+  for (const item of nonDeleted) {
+    const buyer = (item.NOME_COMPRADOR || '').trim();
+    if (!buyer) continue;
+    const key = `BUYER::${buyer}`;
+    const entry = teamMap.get(key) || {
+      memberName: buyer,
+      roleKey: 'BUYER' as const,
+      refs: new Set<string>(),
+      onTimeCount: 0,
+      delayedCount: 0,
+      fobBrl: 0,
+    };
+    entry.refs.add(item.PEDIDO || item.id);
+    const isDelayed =
+      item.STATUS_PRAZO_ENTREGA === 'ATRASADO' || item.DIAS_ATRASO_ENTREGA > 0;
+    if (isDelayed) entry.delayedCount += 1;
+    else entry.onTimeCount += 1;
+
+    const fx =
+      item.MOEDA === 'BRL'
+        ? 1
+        : item.MOEDA === 'EUR'
+          ? item.FUP_TAXA_EURO_PROCESSO || 6.12
+          : item.FUP_TAXA_DOLAR_PROCESSO || 5.65;
+    const fobBrl =
+      item.FUP_VALOR_MERCADORIA > 0
+        ? item.FUP_VALOR_MERCADORIA
+        : item.FUP_VALOR_FOB_REAIS_PROCESSO > 0
+          ? item.FUP_VALOR_FOB_REAIS_PROCESSO
+          : item.VALOR_LIQUIDO * fx;
+    entry.fobBrl += fobBrl;
+    teamMap.set(key, entry);
+  }
+
+  const teamResultsChart = Array.from(teamMap.values())
+    .map((m) => {
+      const total = m.onTimeCount + m.delayedCount;
+      return {
+        memberName: m.memberName,
+        roleKey: m.roleKey,
+        processOrPoCount: m.refs.size,
+        onTimeCount: m.onTimeCount,
+        delayedCount: m.delayedCount,
+        fobBrl: round2(m.fobBrl),
+        onTimePct: total > 0 ? round1((m.onTimeCount / total) * 100) : 100,
+      };
+    })
+    .sort((a, b) => b.fobBrl - a.fobBrl);
+
+  return {
+    totals: {
+      totalShipments,
+      totalPoCount,
+      totalItemLines,
+      registeredDiCount,
+      total20Cntr,
+      total40Cntr,
+      totalContainers,
+      totalTeus,
+      seaShipments,
+      airShipments,
+      roadShipments,
+      totalIntlFreightBrl,
+      totalNationalFreightBrl,
+      totalFreightBrl,
+      freightPctOfFob,
+      totalTaxesBrl,
+      iiBrl,
+      ipiBrl,
+      pisBrl,
+      cofinsBrl,
+      icmsBrl,
+      siscomexBrl,
+      afrmmBrl,
+      totalDelayDays,
+      delayedPoCount,
+      delayedLineCount,
+      avgDelayDays,
+      maxDelayDays,
+      onTimeRatePct,
+      avgClearanceDays,
+      clearedProcessCount,
+      avgNfTurnaroundDays,
+      nfIssuedCount,
+      nfPendingCount,
+      avgTransitDays,
+      avgLeadTimeDays,
+      avgStorageDays,
+      totalStoragePeriods,
+      totalStorageCostBrl,
+      totalInvoicesBrl,
+      totalShippedFobBrl,
+      totalOpenPoBrl,
+      drawbackFobBrl,
+      fullTaxFobBrl,
+      drawbackCoveragePct,
+    },
+    shipmentsByStage,
+    customsChannels,
+    containerMix,
+    containersByProcess,
+    freightByProcess,
+    taxByType,
+    taxByProcess,
+    delaysByStatus,
+    delaysByPo,
+    clearanceByProcess,
+    nfByProcess,
+    nfStatusSummary,
+    deliveryByProcess,
+    storageByProcess,
+    invoicesByProcess,
+    invoicesByFinancialStatus,
+    pepProjectsChart,
+    teamResultsChart,
+  };
+}
+
+
 
 
 

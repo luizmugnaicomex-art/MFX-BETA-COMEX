@@ -11,6 +11,8 @@ import { buildPartnerScorecards } from '../utils/comexEngine';
 import { formatCurrency, formatNumber } from '../utils/sapParser';
 import { exportSwotPdf } from '../utils/exportReports';
 import { StatusBadge } from './StatusBadge';
+import { useI18n } from '../i18n/I18nContext';
+import { fmt } from '../i18n/translations';
 
 interface PartnerSwotCenterProps {
   items: FupItemRow[];
@@ -23,36 +25,26 @@ type QuadrantKey = keyof SwotData;
 
 const QUADRANTS: Array<{
   key: QuadrantKey;
-  title: string;
-  subtitle: string;
   headerClass: string;
   borderClass: string;
 }> = [
   {
     key: 'strengths',
-    title: 'Strengths (Forças)',
-    subtitle: 'Internal operational advantages & performance proof',
     headerClass: 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-300 border-emerald-500/25',
     borderClass: 'border-emerald-500/30',
   },
   {
     key: 'weaknesses',
-    title: 'Weaknesses (Fraquezas)',
-    subtitle: 'Delays, cost variances & internal bottlenecks',
     headerClass: 'bg-rose-500/12 text-rose-700 dark:text-rose-300 border-rose-500/25',
     borderClass: 'border-rose-500/30',
   },
   {
     key: 'opportunities',
-    title: 'Opportunities (Oportunidades)',
-    subtitle: 'Drawback optimization, consolidation & lead-time levers',
     headerClass: 'bg-sky-500/12 text-sky-700 dark:text-sky-300 border-sky-500/25',
     borderClass: 'border-sky-500/30',
   },
   {
     key: 'threats',
-    title: 'Threats (Ameaças)',
-    subtitle: 'External customs, modal, port & FX exposure',
     headerClass: 'bg-amber-500/12 text-amber-700 dark:text-amber-300 border-amber-500/25',
     borderClass: 'border-amber-500/30',
   },
@@ -64,6 +56,7 @@ export const PartnerSwotCenter: React.FC<PartnerSwotCenterProps> = ({
   customSwots,
   onUpdateSwot,
 }) => {
+  const { tr } = useI18n();
   const [categoryFilter, setCategoryFilter] = useState<PartnerCategory>('SUPPLIER');
   const [selectedPartnerId, setSelectedPartnerId] = useState<string>('');
   const [draftInputs, setDraftInputs] = useState<Record<QuadrantKey, string>>({
@@ -136,17 +129,13 @@ export const PartnerSwotCenter: React.FC<PartnerSwotCenterProps> = ({
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
-                {cat === 'SUPPLIER'
-                  ? 'Material Suppliers'
-                  : cat === 'FORWARDER'
-                    ? 'Freight Forwarders'
-                    : 'Customs Brokers'}
+                {tr.partners.categories[cat]}
               </button>
             ))}
           </div>
 
           <span className="text-xs text-slate-500 dark:text-slate-400">
-            Click any partner row to inspect & edit its 2×2 SWOT Board
+            {tr.partners.clickHint}
           </span>
         </div>
 
@@ -154,31 +143,31 @@ export const PartnerSwotCenter: React.FC<PartnerSwotCenterProps> = ({
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-50 dark:bg-slate-950/60 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800 whitespace-nowrap">
-                <th className="py-2.5 px-3 font-medium">Partner Name</th>
+                <th className="py-2.5 px-3 font-medium">{tr.partners.colPartnerName}</th>
                 <th className="py-2.5 px-3 font-medium text-right">
-                  {categoryFilter === 'SUPPLIER' ? 'POs' : 'Processes'}
+                  {categoryFilter === 'SUPPLIER' ? tr.partners.colPos : tr.partners.colProcesses}
                 </th>
-                <th className="py-2.5 px-3 font-medium text-right">Volume (BRL)</th>
+                <th className="py-2.5 px-3 font-medium text-right">{tr.partners.colVolume}</th>
                 {categoryFilter === 'SUPPLIER' && (
                   <>
-                    <th className="py-2.5 px-3 font-medium text-right">Open Qty</th>
-                    <th className="py-2.5 px-3 font-medium text-right">On-Time %</th>
-                    <th className="py-2.5 px-3 font-medium text-right">Avg Delay</th>
-                    <th className="py-2.5 px-3 font-medium text-right">Drawback %</th>
+                    <th className="py-2.5 px-3 font-medium text-right">{tr.partners.colOpenQty}</th>
+                    <th className="py-2.5 px-3 font-medium text-right">{tr.partners.colOnTimePct}</th>
+                    <th className="py-2.5 px-3 font-medium text-right">{tr.partners.colAvgDelay}</th>
+                    <th className="py-2.5 px-3 font-medium text-right">{tr.partners.colDrawbackPct}</th>
                   </>
                 )}
                 {categoryFilter === 'FORWARDER' && (
                   <>
-                    <th className="py-2.5 px-3 font-medium text-right">Air / Sea</th>
-                    <th className="py-2.5 px-3 font-medium text-right">Avg T.T</th>
-                    <th className="py-2.5 px-3 font-medium text-right">Freight % FOB</th>
+                    <th className="py-2.5 px-3 font-medium text-right">{tr.partners.colAirSea}</th>
+                    <th className="py-2.5 px-3 font-medium text-right">{tr.partners.colAvgTt}</th>
+                    <th className="py-2.5 px-3 font-medium text-right">{tr.partners.colFreightPct}</th>
                   </>
                 )}
                 {categoryFilter === 'BROKER' && (
                   <>
-                    <th className="py-2.5 px-3 font-medium text-right">Air / Sea</th>
-                    <th className="py-2.5 px-3 font-medium text-right">Avg Clearance</th>
-                    <th className="py-2.5 px-3 font-medium text-right">Avg Storage Periods</th>
+                    <th className="py-2.5 px-3 font-medium text-right">{tr.partners.colAirSea}</th>
+                    <th className="py-2.5 px-3 font-medium text-right">{tr.partners.colAvgClearance}</th>
+                    <th className="py-2.5 px-3 font-medium text-right">{tr.partners.colAvgStoragePeriods}</th>
                   </>
                 )}
               </tr>
@@ -187,7 +176,7 @@ export const PartnerSwotCenter: React.FC<PartnerSwotCenterProps> = ({
               {categoryCards.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="py-8 px-4 text-center text-xs text-slate-500 dark:text-slate-400">
-                    No partners in this category match the active filters.
+                    {tr.partners.emptyTable}
                   </td>
                 </tr>
               ) : (
@@ -232,7 +221,7 @@ export const PartnerSwotCenter: React.FC<PartnerSwotCenterProps> = ({
                     {categoryFilter === 'FORWARDER' && (
                       <>
                         <td className="py-2.5 px-3 text-right font-mono tabular-nums">
-                          {card.airCount} Air / {card.seaCount} Sea
+                          {fmt(tr.partners.airSeaValue, { air: card.airCount, sea: card.seaCount })}
                         </td>
                         <td className="py-2.5 px-3 text-right font-mono tabular-nums">
                           {card.avgTransitTime}d
@@ -245,7 +234,7 @@ export const PartnerSwotCenter: React.FC<PartnerSwotCenterProps> = ({
                     {categoryFilter === 'BROKER' && (
                       <>
                         <td className="py-2.5 px-3 text-right font-mono tabular-nums">
-                          {card.airCount} Air / {card.seaCount} Sea
+                          {fmt(tr.partners.airSeaValue, { air: card.airCount, sea: card.seaCount })}
                         </td>
                         <td className="py-2.5 px-3 text-right font-mono tabular-nums">
                           {card.avgClearanceDays}d
@@ -270,7 +259,7 @@ export const PartnerSwotCenter: React.FC<PartnerSwotCenterProps> = ({
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-4">
             <div>
               <div className="text-xs font-mono text-cyan-600 dark:text-cyan-400">
-                360° SWOT BOARD · {selectedPartner.category}
+                {fmt(tr.partners.boardEyebrow, { category: tr.partners.categories[selectedPartner.category] })}
               </div>
               <h2 className="text-lg font-bold text-slate-900 dark:text-white mt-0.5">
                 {selectedPartner.name}
@@ -279,7 +268,7 @@ export const PartnerSwotCenter: React.FC<PartnerSwotCenterProps> = ({
 
             <div className="flex items-center gap-2">
               <select
-                aria-label="Select partner for SWOT"
+                aria-label={tr.partners.selectPartnerAria}
                 value={selectedPartner.id}
                 onChange={(e) => setSelectedPartnerId(e.target.value)}
                 className="px-3 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
@@ -297,7 +286,7 @@ export const PartnerSwotCenter: React.FC<PartnerSwotCenterProps> = ({
                 className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white whitespace-nowrap shrink-0"
               >
                 <FileText className="w-3.5 h-3.5" />
-                Export SWOT Dossier PDF
+                {tr.partners.exportPdf}
               </button>
             </div>
           </div>
@@ -305,6 +294,7 @@ export const PartnerSwotCenter: React.FC<PartnerSwotCenterProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {QUADRANTS.map((q) => {
               const bullets = activeSwot[q.key];
+              const qMeta = tr.partners.quadrants[q.key];
               return (
                 <div
                   key={q.key}
@@ -313,11 +303,13 @@ export const PartnerSwotCenter: React.FC<PartnerSwotCenterProps> = ({
                   <div>
                     <div className="flex items-center justify-between mb-2">
                       <span className={`px-2.5 py-1 text-xs font-semibold rounded-md border ${q.headerClass}`}>
-                        {q.title}
+                        {qMeta.title}
                       </span>
-                      <span className="text-[11px] font-mono text-slate-400">{bullets.length} items</span>
+                      <span className="text-[11px] font-mono text-slate-400">
+                        {fmt(tr.partners.itemsCount, { count: bullets.length })}
+                      </span>
                     </div>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-3">{q.subtitle}</p>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-3">{qMeta.subtitle}</p>
 
                     <ul className="space-y-2">
                       {bullets.map((b, idx) => (
@@ -328,7 +320,7 @@ export const PartnerSwotCenter: React.FC<PartnerSwotCenterProps> = ({
                           <span>{b}</span>
                           <button
                             type="button"
-                            aria-label={`Remove ${q.key} note ${idx + 1}`}
+                            aria-label={fmt(tr.partners.removeNoteAria, { quadrant: qMeta.short, index: idx + 1 })}
                             onClick={() => handleRemoveBullet(q.key, idx)}
                             className="text-slate-400 hover:text-rose-500 shrink-0 mt-0.5"
                           >
@@ -342,7 +334,7 @@ export const PartnerSwotCenter: React.FC<PartnerSwotCenterProps> = ({
                   <div className="flex items-center gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
                     <input
                       type="text"
-                      placeholder={`Add ${q.key} insight...`}
+                      placeholder={fmt(tr.partners.addPlaceholder, { quadrant: qMeta.short })}
                       value={draftInputs[q.key]}
                       onChange={(e) =>
                         setDraftInputs((prev) => ({ ...prev, [q.key]: e.target.value }))
@@ -358,11 +350,11 @@ export const PartnerSwotCenter: React.FC<PartnerSwotCenterProps> = ({
                     <button
                       type="button"
                       onClick={() => handleAddBullet(q.key)}
-                      aria-label={`Add note to ${q.key}`}
+                      aria-label={fmt(tr.partners.addNoteAria, { quadrant: qMeta.short })}
                       className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg bg-slate-900 dark:bg-slate-800 text-white hover:bg-slate-700"
                     >
                       <Plus className="w-3.5 h-3.5" />
-                      Add
+                      {tr.common.add}
                     </button>
                   </div>
                 </div>

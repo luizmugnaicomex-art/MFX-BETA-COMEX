@@ -4,6 +4,7 @@ import type { FupItemRow, ShipmentOverrides } from '../types/comex';
 import { buildOrderStatusMatrix } from '../utils/comexEngine';
 import { formatCurrency, formatNumber } from '../utils/sapParser';
 import { exportOrderStatusMatrix } from '../utils/exportReports';
+import { useI18n } from '../i18n/I18nContext';
 
 interface OrderStatusMatrixProps {
   items: FupItemRow[];
@@ -18,6 +19,7 @@ export const OrderStatusMatrix: React.FC<OrderStatusMatrixProps> = ({
   qtdAcOverrides,
   onUpdateQtdAc,
 }) => {
+  const { tr, fmt } = useI18n();
   const [localProjectFilter, setLocalProjectFilter] = useState('');
   const [localMaterialSearch, setLocalMaterialSearch] = useState('');
 
@@ -43,7 +45,9 @@ export const OrderStatusMatrix: React.FC<OrderStatusMatrixProps> = ({
             m.materialCode.toLowerCase().includes(q) ||
             m.descPt.toLowerCase().includes(q) ||
             m.descEn.toLowerCase().includes(q) ||
-            m.ncm.toLowerCase().includes(q)
+            m.ncm.toLowerCase().includes(q) ||
+            m.elementoPep.toLowerCase().includes(q) ||
+            m.elementoPepCode.toLowerCase().includes(q)
         ),
       }))
       .filter((s) => s.materials.length > 0);
@@ -65,12 +69,12 @@ export const OrderStatusMatrix: React.FC<OrderStatusMatrixProps> = ({
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3">
           <select
-            aria-label="Filter matrix by project"
+            aria-label={tr.matrix.filterProjectAria}
             value={effectiveProjectFilter}
             onChange={(e) => setLocalProjectFilter(e.target.value)}
             className="px-3 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100"
           >
-            <option value="">All PEP Projects ({matrix.sections.length})</option>
+            <option value="">{fmt(tr.matrix.allProjects, { count: matrix.sections.length })}</option>
             {matrix.sections.map((s) => (
               <option key={s.sectionKey} value={s.sectionKey}>
                 {s.label}
@@ -80,14 +84,15 @@ export const OrderStatusMatrix: React.FC<OrderStatusMatrixProps> = ({
 
           <input
             type="text"
-            placeholder="Filter material code, PT/ENG desc, NCM..."
+            placeholder={tr.matrix.searchPlaceholder}
             value={localMaterialSearch}
             onChange={(e) => setLocalMaterialSearch(e.target.value)}
             className="px-3 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 w-64"
           />
 
           <span className="text-xs font-mono tabular-nums text-slate-500 dark:text-slate-400">
-            Total Allocated QTD AC: <strong className="text-slate-900 dark:text-white">{formatNumber(totalQtdAc, 0)}</strong>
+            {tr.matrix.totalAllocatedQtdAc}{' '}
+            <strong className="text-slate-900 dark:text-white">{formatNumber(totalQtdAc, 0)}</strong>
           </span>
         </div>
 
@@ -97,7 +102,7 @@ export const OrderStatusMatrix: React.FC<OrderStatusMatrixProps> = ({
           className="inline-flex items-center gap-2 px-3.5 py-1.5 text-xs font-medium rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition-colors whitespace-nowrap shrink-0"
         >
           <Download className="w-3.5 h-3.5" />
-          Export Matrix to Excel (.xlsx)
+          {tr.matrix.exportBtn}
         </button>
       </div>
 
@@ -105,7 +110,7 @@ export const OrderStatusMatrix: React.FC<OrderStatusMatrixProps> = ({
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
         {filteredSections.length === 0 ? (
           <div className="p-8 text-center text-sm text-slate-500 dark:text-slate-400">
-            No matrix rows match the active filters.
+            {tr.matrix.emptyState}
           </div>
         ) : (
           <div className="overflow-x-auto max-h-[680px]">
@@ -113,8 +118,8 @@ export const OrderStatusMatrix: React.FC<OrderStatusMatrixProps> = ({
               <thead className="sticky top-0 z-20 bg-white dark:bg-slate-900">
                 {/* Row 1: N# */}
                 <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/80">
-                  <td colSpan={6} className="py-1.5 px-3 text-slate-400 italic">
-                    01 - Relatório de Status dos Pedidos (Matriz SAP × Embarques)
+                  <td colSpan={7} className="py-1.5 px-3 text-slate-400 italic">
+                    {tr.matrix.reportSubtitle}
                   </td>
                   <th className="py-1.5 px-3 text-right font-semibold text-slate-600 dark:text-slate-300 border-x border-slate-200 dark:border-slate-800">
                     N#
@@ -142,9 +147,9 @@ export const OrderStatusMatrix: React.FC<OrderStatusMatrixProps> = ({
 
                 {/* Row 2: Supplier */}
                 <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/60">
-                  <td colSpan={6} />
+                  <td colSpan={7} />
                   <th className="py-1 px-3 text-right font-medium text-slate-500 dark:text-slate-400 border-x border-slate-200 dark:border-slate-800">
-                    Supplier
+                    {tr.matrix.supplierRow}
                   </th>
                   {matrix.columns.map((col) => (
                     <td key={col.key} className="py-1 px-2 text-center text-slate-700 dark:text-slate-300 border-r border-slate-200 dark:border-slate-800 max-w-[150px] truncate" title={col.supplier}>
@@ -156,9 +161,9 @@ export const OrderStatusMatrix: React.FC<OrderStatusMatrixProps> = ({
 
                 {/* Row 3: Payment */}
                 <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/60">
-                  <td colSpan={6} />
+                  <td colSpan={7} />
                   <th className="py-1 px-3 text-right font-medium text-slate-500 dark:text-slate-400 border-x border-slate-200 dark:border-slate-800">
-                    Payment
+                    {tr.matrix.paymentRow}
                   </th>
                   {matrix.columns.map((col) => (
                     <td key={col.key} className="py-1 px-2 text-center font-mono text-slate-700 dark:text-slate-300 border-r border-slate-200 dark:border-slate-800">
@@ -170,9 +175,9 @@ export const OrderStatusMatrix: React.FC<OrderStatusMatrixProps> = ({
 
                 {/* Row 4: Adv Value */}
                 <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/60">
-                  <td colSpan={6} />
+                  <td colSpan={7} />
                   <th className="py-1 px-3 text-right font-medium text-slate-500 dark:text-slate-400 border-x border-slate-200 dark:border-slate-800">
-                    Adv Value
+                    {tr.matrix.advValueRow}
                   </th>
                   {matrix.columns.map((col) => (
                     <td key={col.key} className="py-1 px-2 text-center font-mono tabular-nums text-slate-900 dark:text-slate-100 border-r border-slate-200 dark:border-slate-800">
@@ -184,7 +189,7 @@ export const OrderStatusMatrix: React.FC<OrderStatusMatrixProps> = ({
 
                 {/* Row 5: ETD */}
                 <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/60">
-                  <td colSpan={6} />
+                  <td colSpan={7} />
                   <th className="py-1 px-3 text-right font-medium text-slate-500 dark:text-slate-400 border-x border-slate-200 dark:border-slate-800">
                     ETD
                   </th>
@@ -198,7 +203,7 @@ export const OrderStatusMatrix: React.FC<OrderStatusMatrixProps> = ({
 
                 {/* Row 6: ETA */}
                 <tr className="border-b border-slate-300 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-950/60">
-                  <td colSpan={6} />
+                  <td colSpan={7} />
                   <th className="py-1 px-3 text-right font-medium text-slate-500 dark:text-slate-400 border-x border-slate-200 dark:border-slate-800">
                     ETA
                   </th>
@@ -212,16 +217,17 @@ export const OrderStatusMatrix: React.FC<OrderStatusMatrixProps> = ({
 
                 {/* Row 7: Material Columns Header */}
                 <tr className="bg-slate-900 text-slate-100 dark:bg-slate-800 border-b border-slate-700 whitespace-nowrap">
-                  <th className="py-2 px-3 text-left font-semibold">COD. MATERIAL</th>
-                  <th className="py-2 px-3 text-left font-semibold">DESCRIÇÃO MATERIAL - PT</th>
-                  <th className="py-2 px-3 text-left font-semibold">DESCRIÇÃO MATERIAL - ENG</th>
-                  <th className="py-2 px-3 text-left font-semibold">NCM</th>
+                  <th className="py-2 px-3 text-left font-semibold">{tr.matrix.codMaterial}</th>
+                  <th className="py-2 px-3 text-left font-semibold">{tr.matrix.descPt}</th>
+                  <th className="py-2 px-3 text-left font-semibold">{tr.matrix.descEn}</th>
+                  <th className="py-2 px-3 text-left font-semibold">{tr.common.ncm}</th>
                   <th className="py-2 px-3 text-center font-semibold">UM</th>
-                  <th className="py-2 px-3 text-right font-semibold">Estoque</th>
-                  <th className="py-2 px-3 text-center font-semibold border-x border-slate-700">AC REF</th>
+                  <th className="py-2 px-3 text-right font-semibold">{tr.matrix.estoque}</th>
+                  <th className="py-2 px-3 text-left font-semibold">{tr.matrix.elementoPep}</th>
+                  <th className="py-2 px-3 text-center font-semibold border-x border-slate-700">{tr.matrix.acRef}</th>
                   {matrix.columns.map((col) => (
                     <th key={col.key} className="py-2 px-3 text-right font-mono font-semibold border-r border-slate-700">
-                      QTD ({col.kind})
+                      {fmt(tr.matrix.qtdHeader, { kind: col.kind })}
                     </th>
                   ))}
                   <th className="py-2 px-3 text-right font-semibold">QTD AC</th>
@@ -234,7 +240,7 @@ export const OrderStatusMatrix: React.FC<OrderStatusMatrixProps> = ({
                     {/* Bold Full-Width Project Section Header */}
                     <tr className="bg-indigo-500/10 dark:bg-indigo-500/15 border-y border-indigo-500/25">
                       <td
-                        colSpan={7 + matrix.columns.length + 1}
+                        colSpan={8 + matrix.columns.length + 1}
                         className="py-2 px-3 font-display font-bold text-xs text-indigo-800 dark:text-indigo-200"
                       >
                         {sec.label}
@@ -266,6 +272,18 @@ export const OrderStatusMatrix: React.FC<OrderStatusMatrixProps> = ({
                           <td className="py-2 px-3 text-right font-mono tabular-nums font-medium text-emerald-700 dark:text-emerald-300">
                             {formatNumber(mat.estoque, 0)}
                           </td>
+                          <td
+                            className="py-2 px-3 font-medium text-slate-700 dark:text-slate-300 max-w-[210px] truncate"
+                            title={
+                              mat.elementoPepCode &&
+                              mat.elementoPepCode !== '-' &&
+                              mat.elementoPepCode !== mat.elementoPep
+                                ? `${mat.elementoPep} (${mat.elementoPepCode})`
+                                : mat.elementoPep
+                            }
+                          >
+                            {mat.elementoPep}
+                          </td>
                           <td className="py-2 px-3 text-center font-mono text-[10px] text-slate-500 dark:text-slate-400 border-x border-slate-200 dark:border-slate-800">
                             {mat.acNumber || '-'}
                           </td>
@@ -287,7 +305,7 @@ export const OrderStatusMatrix: React.FC<OrderStatusMatrixProps> = ({
                           <td className="py-1.5 px-2 text-right">
                             <input
                               type="number"
-                              aria-label={`QTD AC for ${mat.materialCode}`}
+                              aria-label={fmt(tr.matrix.qtdAcInputAria, { code: mat.materialCode })}
                               value={qtdAc}
                               onChange={(e) => onUpdateQtdAc(acKey, Number(e.target.value) || 0)}
                               className="w-20 px-2 py-1 text-right font-mono tabular-nums rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"

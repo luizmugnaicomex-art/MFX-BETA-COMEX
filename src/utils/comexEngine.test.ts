@@ -14,6 +14,7 @@ import {
   buildOrderStatusMatrix,
   buildPartnerScorecards,
   buildShipmentProcesses,
+  buildShipmentWorthinessAnalysis,
   calculateBrazilianImportTaxes,
   computeDirectorChartMetrics,
   computeExecutiveKpis,
@@ -23,6 +24,7 @@ import {
   parseContainerCounts,
   resolveItemFilterDate,
 } from './comexEngine';
+import { buildOrderStatusMatrixAoa } from './exportReports';
 import type { ComexFilters } from '../types/comex';
 import { INITIAL_MFX_SEED_DATA } from '../data/mfxSeedData';
 
@@ -153,6 +155,8 @@ test('buildOrderStatusMatrix generates unique sectionKey and rowKey when PEP des
   assert.equal(sectionKeys.size, 2);
   const rowKeys = new Set(matrix.sections.flatMap((s) => s.materials.map((m) => m.rowKey)));
   assert.equal(rowKeys.size, 2);
+  assert.equal(matrix.sections[0].materials[0].elementoPep, 'QUICK COUPLING');
+  assert.equal(matrix.sections[0].materials[0].elementoPepCode, 'PEP-0100-QC');
 });
 
 test('parseContainerCounts parses multiplier container strings and computeDirectorChartMetrics aggregates KPIs', () => {
@@ -654,3 +658,125 @@ test('Uploaded FUP Excel with explicit 0 taxes (e.g. MFX-00157/26) never trigger
   assert.equal(mfx157.totalClearanceExpensesBrl, 16568.19);
   assert.equal(mfx157.totalNumerarioBrl, 17291.1);
 });
+
+test('buildShipmentWorthinessAnalysis evaluates order cost ratios, Air vs Sea ROI, and cross-order SKU troubles without guessing taxes', () => {
+  const active = filterFupItems(INITIAL_MFX_SEED_DATA, BASE_FILTERS);
+  const processes = buildShipmentProcesses(active, {});
+  const worth = buildShipmentWorthinessAnalysis(processes, active, INITIAL_MFX_SEED_DATA);
+
+  assert.equal(worth.rows.length, 5);
+  assert.ok(worth.summary.totalFobBrl > 0);
+  assert.ok(worth.summary.airShipmentCount >= 2);
+
+  // MFX-00042/26 (Air, missing AC on 84818099, delayed +22d, stalled PARADO AG. DRAWBACK) -> AVOIDABLE_AIR & NOT_WORTH_IT
+  const mfx42 = worth.rows.find((r) => r.ref === 'MFX-00042/26');
+  assert.ok(mfx42);
+  assert.equal(mfx42.airEvaluation.isAir, true);
+  assert.equal(mfx42.airEvaluation.verdict, 'AVOIDABLE_AIR');
+  assert.equal(mfx42.worthinessVerdict, 'NOT_WORTH_IT');
+  assert.equal(mfx42.customsTaxesBrl, 0); // Strictly preserves SAP 0 taxes
+  assert.ok(mfx42.recommendations.some((rec) => rec.code === 'LINK_DRAWBACK_AC'));
+  assert.ok(mfx42.recommendations.some((rec) => rec.code === 'SHIFT_AIR_TO_SEA'));
+
+  // MFX-00037/26 (SIEMENS Air EXW, 5.4% freight/FOB, 3d transit, on-time green channel) -> JUSTIFIED_AIR + REVIEW (statutory tax burden) + EXW advice
+  const mfx37 = worth.rows.find((r) => r.ref === 'MFX-00037/26');
+  assert.ok(mfx37);
+  assert.equal(mfx37.airEvaluation.isAir, true);
+  assert.equal(mfx37.airEvaluation.verdict, 'JUSTIFIED_AIR');
+  assert.equal(mfx37.worthinessVerdict, 'REVIEW');
+  assert.ok(mfx37.recommendations.some((rec) => rec.code === 'INCOTERM_EXW_TO_FCA'));
+
+  // Cross-order recurring SKU trouble check even when filtered to a single recent shipment
+  const histPo1 = normalizeFupRow(
+    {
+      PEDIDO: '4500008001',
+      ITEM_PEDIDO: '10',
+      DATA_PEDIDO: '2025-05-10',
+      NOME_FORNECEDOR: 'CHRONO PARTS GMBH',
+      MATERIAL: '000000000099001122',
+      DESCRICAO_MATERIAL: 'VALVULA SUBMARINA RECORRENTE',
+      FUP_NCMS: '84818099',
+      MOEDA: 'USD',
+      VALOR_LIQUIDO: 20000,
+      QUANTIDADE_PEDIDA: 10,
+      DIAS_ATRASO_ENTREGA: 18,
+      STATUS_PRAZO_ENTREGA: 'ATRASADO',
+      FUP_TIPO_EMBARQUE: 'A',
+      FUP_INCOTERM: 'EXW',
+      ULTIMO_PROCESSO_IMPORTACAO: 'MFX-00001/25',
+      FUP_VALOR_MERCADORIA: 113000,
+      FUP_TOTAL_FRETE_FISCAL_ITEM: 18000,
+    },
+    0
+  );
+  const currentPo2 = normalizeFupRow(
+    {
+      PEDIDO: '4500008099',
+      ITEM_PEDIDO: '10',
+      DATA_PEDIDO: '2026-06-10',
+      NOME_FORNECEDOR: 'CHRONO PARTS GMBH',
+      MATERIAL: '000000000099001122',
+      DESCRICAO_MATERIAL: 'VALVULA SUBMARINA RECORRENTE',
+      FUP_NCMS: '84818099',
+      MOEDA: 'USD',
+      VALOR_LIQUIDO: 25000,
+      QUANTIDADE_PEDIDA: 10,
+      DIAS_ATRASO_ENTREGA: 12,
+      STATUS_PRAZO_ENTREGA: 'ATRASADO',
+      FUP_TIPO_EMBARQUE: 'A',
+      FUP_INCOTERM: 'EXW',
+      ULTIMO_PROCESSO_IMPORTACAO: 'MFX-00099/26',
+      ETD: '2026-06-20',
+      ETA: '2026-06-24',
+      FUP_VALOR_MERCADORIA: 141250,
+      FUP_TOTAL_FRETE_FISCAL_ITEM: 22000,
+      FUP_TOTAL_II_ITEM: 0,
+      FUP_TOTAL_IPI_ITEM: 0,
+      FUP_TOTAL_PIS_ITEM: 0,
+      FUP_TOTAL_COFINS_ITEM: 0,
+      FUP_TOTAL_ICMS_ITEM: 0,
+    },
+    1
+  );
+
+  const filteredProcs = buildShipmentProcesses([currentPo2], {});
+  const crossWorth = buildShipmentWorthinessAnalysis(
+    filteredProcs,
+    [currentPo2],
+    [histPo1, currentPo2]
+  );
+
+  assert.equal(crossWorth.rows.length, 1);
+  const row99 = crossWorth.rows[0];
+  assert.equal(row99.customsTaxesBrl, 0);
+  assert.equal(row99.itemTroubleSummary.hasRecurringTrouble, true);
+  assert.equal(row99.itemTroubleSummary.lateOrderCount, 2);
+  assert.equal(row99.itemTroubleSummary.repeatAirCount, 2);
+  assert.equal(row99.airEvaluation.verdict, 'AVOIDABLE_AIR');
+  assert.equal(row99.worthinessVerdict, 'NOT_WORTH_IT');
+  assert.ok(crossWorth.materialTroubles[0].severity === 'HIGH');
+  assert.ok(crossWorth.materialTroubles[0].troubleSignals.some((s) => s.includes('Repeat delays')));
+});
+
+test('buildOrderStatusMatrixAoa places PEP column directly after Estoque and keeps metadata aligned over TIPO', () => {
+  const active = filterFupItems(INITIAL_MFX_SEED_DATA, BASE_FILTERS);
+  const matrix = buildOrderStatusMatrix(active, {});
+  const aoa = buildOrderStatusMatrixAoa(matrix, {});
+
+  // Top 6 metadata rows: Cols A-G blank, Col H (index 7) has label
+  assert.equal(aoa[0][7], 'N#');
+  assert.equal(aoa[1][7], 'Supplier');
+  assert.equal(aoa[5][7], 'ETA');
+
+  // Row 7 header: Estoque at index 5 (F), PEP at index 6 (G), TIPO at index 7 (H)
+  const headerRow = aoa[6];
+  assert.equal(headerRow[5], 'Estoque');
+  assert.equal(headerRow[6], 'PEP');
+  assert.equal(headerRow[7], 'TIPO');
+
+  // First section header row & first material row
+  assert.ok(String(aoa[7][0]).startsWith('PROJETO:'));
+  const firstMaterialRow = aoa[8];
+  assert.ok(String(firstMaterialRow[6]).length > 0);
+});
+

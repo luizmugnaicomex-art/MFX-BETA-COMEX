@@ -30,6 +30,9 @@ import {
   TIER_META,
 } from './SimilarGroupCheckDrawer';
 import { StatusBadge } from './StatusBadge';
+import { useI18n } from '../i18n/I18nContext';
+import { fmt } from '../i18n/translations';
+import { translateMatchReason } from '../i18n/helpers';
 
 interface SimilarItemsPanelProps {
   items: FupItemRow[];
@@ -40,10 +43,10 @@ interface SimilarItemsPanelProps {
   onSelectProcess: (ref: string) => void;
 }
 
-const THRESHOLD_PRESETS: Array<{ value: number; label: string }> = [
-  { value: 75, label: 'Strict (≥75%)' },
-  { value: 55, label: 'Balanced (≥55%)' },
-  { value: 35, label: 'Broad (≥35%)' },
+const THRESHOLD_PRESETS: Array<{ value: number; key: 'strict' | 'balanced' | 'broad' }> = [
+  { value: 75, key: 'strict' },
+  { value: 55, key: 'balanced' },
+  { value: 35, key: 'broad' },
 ];
 
 export const SimilarItemsPanel: React.FC<SimilarItemsPanelProps> = ({
@@ -54,6 +57,7 @@ export const SimilarItemsPanel: React.FC<SimilarItemsPanelProps> = ({
   onSaveKraljicOverride,
   onSelectProcess,
 }) => {
+  const { lang, tr } = useI18n();
   const [minScore, setMinScore] = useState<number>(55);
   const [tierFilter, setTierFilter] = useState<'ALL' | SimilarMatchTier>('ALL');
   const [auditFilter, setAuditFilter] = useState<'ALL' | SimilarAuditStatus>('ALL');
@@ -114,7 +118,7 @@ export const SimilarItemsPanel: React.FC<SimilarItemsPanelProps> = ({
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4">
           <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-            <span>Similar Item Clusters</span>
+            <span>{tr.similar.kpiClustersTitle}</span>
             <CopyCheck className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
           </div>
           <div className="mt-2 flex items-baseline justify-between gap-2">
@@ -122,17 +126,20 @@ export const SimilarItemsPanel: React.FC<SimilarItemsPanelProps> = ({
               {similarityResult.totalGroups}
             </span>
             <span className="text-xs font-mono tabular-nums text-slate-500 dark:text-slate-400">
-              {similarityResult.totalMaterialsInvolved} of {analytics.totalSkus} SKUs
+              {fmt(tr.similar.kpiClustersMeta, {
+                involved: similarityResult.totalMaterialsInvolved,
+                total: analytics.totalSkus,
+              })}
             </span>
           </div>
           <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-            Threshold: ≥{minScore}% similarity
+            {fmt(tr.similar.kpiClustersSub, { score: minScore })}
           </div>
         </div>
 
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4">
           <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-            <span>Exact / High Match Risk</span>
+            <span>{tr.similar.kpiRiskTitle}</span>
             <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400" />
           </div>
           <div className="mt-2 flex items-baseline justify-between gap-2">
@@ -140,17 +147,17 @@ export const SimilarItemsPanel: React.FC<SimilarItemsPanelProps> = ({
               {similarityResult.exactDuplicateGroups}
             </span>
             <span className="text-xs font-mono tabular-nums text-amber-600 dark:text-amber-300">
-              +{similarityResult.highSimilarityGroups} high match
+              {fmt(tr.similar.kpiHighMatch, { count: similarityResult.highSimilarityGroups })}
             </span>
           </div>
           <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-            Same item under different SAP codes
+            {tr.similar.kpiRiskSub}
           </div>
         </div>
 
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4">
           <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-            <span>Audit Check Progress</span>
+            <span>{tr.similar.kpiProgressTitle}</span>
             <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
           </div>
           <div className="mt-2 flex items-baseline justify-between gap-2">
@@ -158,17 +165,17 @@ export const SimilarItemsPanel: React.FC<SimilarItemsPanelProps> = ({
               {similarityResult.confirmedDuplicateGroups}
             </span>
             <span className="text-xs font-mono tabular-nums text-slate-500 dark:text-slate-400">
-              {similarityResult.pendingGroups} pending check
+              {fmt(tr.similar.kpiPendingCheck, { count: similarityResult.pendingGroups })}
             </span>
           </div>
           <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-            Confirmed duplicates flagged for SAP merge
+            {tr.similar.kpiProgressSub}
           </div>
         </div>
 
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4">
           <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-            <span>Cluster Spend &amp; Price Spread</span>
+            <span>{tr.similar.kpiSpendTitle}</span>
             <DollarSign className="w-4 h-4 text-amber-600 dark:text-amber-400" />
           </div>
           <div className="mt-2 flex items-baseline justify-between gap-2">
@@ -177,7 +184,7 @@ export const SimilarItemsPanel: React.FC<SimilarItemsPanelProps> = ({
             </span>
           </div>
           <div className="mt-2 text-xs font-mono tabular-nums text-slate-500 dark:text-slate-400">
-            Max unit price spread: {similarityResult.maxPriceSpreadPct}%
+            {fmt(tr.similar.kpiMaxSpread, { pct: similarityResult.maxPriceSpreadPct })}
           </div>
         </div>
       </div>
@@ -197,42 +204,42 @@ export const SimilarItemsPanel: React.FC<SimilarItemsPanelProps> = ({
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
-                {preset.label}
+                {tr.similar.presets[preset.key]}
               </button>
             ))}
           </div>
 
           <select
-            aria-label="Filter by Match Tier"
+            aria-label={tr.similar.tierFilterAria}
             value={tierFilter}
             onChange={(e) => setTierFilter(e.target.value as 'ALL' | SimilarMatchTier)}
             className="px-2 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
           >
-            <option value="ALL">All Match Tiers</option>
-            <option value="EXACT_DUPLICATE">Exact / Near Duplicate (≥85%)</option>
-            <option value="HIGH_SIMILARITY">High Similarity (65–84%)</option>
-            <option value="POSSIBLE_VARIANT">Possible Variant (&lt;65%)</option>
+            <option value="ALL">{tr.similar.allTiers}</option>
+            <option value="EXACT_DUPLICATE">{tr.similar.tierExact}</option>
+            <option value="HIGH_SIMILARITY">{tr.similar.tierHigh}</option>
+            <option value="POSSIBLE_VARIANT">{tr.similar.tierPossible}</option>
           </select>
 
           <select
-            aria-label="Filter by Verification Status"
+            aria-label={tr.similar.auditFilterAria}
             value={auditFilter}
             onChange={(e) => setAuditFilter(e.target.value as 'ALL' | SimilarAuditStatus)}
             className="px-2 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
           >
-            <option value="ALL">All Verification States</option>
-            <option value="PENDING">Pending Check</option>
-            <option value="CONFIRMED_DUPLICATE">Confirmed Duplicate</option>
-            <option value="VALID_VARIANT">Valid Variant</option>
-            <option value="DISMISSED">Not Similar</option>
+            <option value="ALL">{tr.similar.allVerification}</option>
+            <option value="PENDING">{tr.similar.auditStatus.PENDING}</option>
+            <option value="CONFIRMED_DUPLICATE">{tr.similar.auditStatus.CONFIRMED_DUPLICATE}</option>
+            <option value="VALID_VARIANT">{tr.similar.auditStatus.VALID_VARIANT}</option>
+            <option value="DISMISSED">{tr.similar.auditStatus.DISMISSED}</option>
           </select>
 
           <div className="relative">
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
-              aria-label="Search similar materials"
-              placeholder="Code, desc, NCM..."
+              aria-label={tr.similar.searchAria}
+              placeholder={tr.similar.searchPlaceholder}
               value={localSearch}
               onChange={(e) => setLocalSearch(e.target.value)}
               className="pl-8 pr-2.5 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white w-48"
@@ -247,7 +254,7 @@ export const SimilarItemsPanel: React.FC<SimilarItemsPanelProps> = ({
           className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-45 disabled:cursor-not-allowed text-white transition-colors whitespace-nowrap shrink-0"
         >
           <Download className="w-3.5 h-3.5" />
-          Export Similar Items.xlsx
+          {tr.similar.exportBtn}
         </button>
       </div>
 
@@ -256,14 +263,14 @@ export const SimilarItemsPanel: React.FC<SimilarItemsPanelProps> = ({
         <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
           <div>
             <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
-              Duplicate &amp; Similar Material Code Clusters ({displayedGroups.length})
+              {fmt(tr.similar.tableTitle, { count: displayedGroups.length })}
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Groups distinct SAP MATERIAL codes with matching PT/EN descriptions, specs, or NCM · Click Compare to verify side-by-side
+              {tr.similar.tableSubtitle}
             </p>
           </div>
           <span className="text-xs font-mono text-slate-500 dark:text-slate-400">
-            {analytics.totalSkus} distinct SKUs scanned
+            {fmt(tr.similar.skusScanned, { count: analytics.totalSkus })}
           </span>
         </div>
 
@@ -272,12 +279,12 @@ export const SimilarItemsPanel: React.FC<SimilarItemsPanelProps> = ({
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 p-4">
               <div className="space-y-1">
                 <div className="text-sm font-semibold text-slate-900 dark:text-white">
-                  No duplicate or similar material codes detected at ≥{minScore}% similarity
+                  {fmt(tr.similar.emptyTitle, { score: minScore })}
                 </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
                   {similarityResult.totalGroups === 0
-                    ? `All ${analytics.totalSkus} material codes in the current filter scope have distinct descriptions and specifications. Upload your full FUP COMEX.xlsx to scan hundreds of SAP SKUs, or switch sensitivity to Broad (≥35%).`
-                    : 'No clusters match your active tier, verification status, or search filters.'}
+                    ? fmt(tr.similar.emptyCleanDesc, { total: analytics.totalSkus })
+                    : tr.similar.emptyFilteredDesc}
                 </p>
               </div>
               <div className="flex items-center gap-2 shrink-0">
@@ -287,7 +294,7 @@ export const SimilarItemsPanel: React.FC<SimilarItemsPanelProps> = ({
                     onClick={() => setMinScore(35)}
                     className="px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 whitespace-nowrap"
                   >
-                    Try Broad (≥35%)
+                    {tr.similar.tryBroadBtn}
                   </button>
                 )}
                 {(tierFilter !== 'ALL' || auditFilter !== 'ALL' || localSearch) && (
@@ -300,7 +307,7 @@ export const SimilarItemsPanel: React.FC<SimilarItemsPanelProps> = ({
                     }}
                     className="px-3 py-1.5 text-xs font-medium rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white whitespace-nowrap"
                   >
-                    Clear Table Filters
+                    {tr.similar.clearTableFilters}
                   </button>
                 )}
               </div>
@@ -311,19 +318,19 @@ export const SimilarItemsPanel: React.FC<SimilarItemsPanelProps> = ({
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
                   <span className="font-semibold text-slate-700 dark:text-slate-200">
-                    Closest Material Pairs Below Threshold (Diagnostic Preview)
+                    {tr.similar.previewTitle}
                   </span>
-                  <span>Click Compare to inspect side-by-side differences</span>
+                  <span>{tr.similar.previewHint}</span>
                 </div>
                 <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-xl">
                   <table className="w-full text-left border-collapse text-xs">
                     <thead>
                       <tr className="bg-slate-50 dark:bg-slate-950/60 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800 whitespace-nowrap">
-                        <th className="py-2 px-3 font-medium">Match</th>
-                        <th className="py-2 px-3 font-medium">Material Codes &amp; Descriptions</th>
-                        <th className="py-2 px-3 font-medium">Shared Signals &amp; Spec Diffs</th>
-                        <th className="py-2 px-3 font-medium text-right">Combined Spend</th>
-                        <th className="py-2 px-3 font-medium text-right">Action</th>
+                        <th className="py-2 px-3 font-medium">{tr.similar.colMatch}</th>
+                        <th className="py-2 px-3 font-medium">{tr.similar.colCodesDescs}</th>
+                        <th className="py-2 px-3 font-medium">{tr.similar.colSignalsDiffs}</th>
+                        <th className="py-2 px-3 font-medium text-right">{tr.similar.colCombinedSpend}</th>
+                        <th className="py-2 px-3 font-medium text-right">{tr.common.action}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800/70">
@@ -349,10 +356,10 @@ export const SimilarItemsPanel: React.FC<SimilarItemsPanelProps> = ({
                             ))}
                           </td>
                           <td className="py-2.5 px-3 text-[11px] text-slate-500 dark:text-slate-400">
-                            <div>{g.matchReasons.join(' · ')}</div>
+                            <div>{g.matchReasons.map((r) => translateMatchReason(r, lang)).join(' · ')}</div>
                             {g.specDifferences.length > 0 && (
                               <div className="text-amber-600 dark:text-amber-300 font-mono">
-                                Spec diff: {g.specDifferences.join(' · ')}
+                                {tr.similar.specDiffPrefix} {g.specDifferences.join(' · ')}
                               </div>
                             )}
                           </td>
@@ -366,11 +373,11 @@ export const SimilarItemsPanel: React.FC<SimilarItemsPanelProps> = ({
                                 e.stopPropagation();
                                 setSelectedGroupId(g.groupId);
                               }}
-                              aria-label={`Compare similar cluster ${g.groupId}`}
+                              aria-label={fmt(tr.similar.compareAria, { id: g.groupId })}
                               className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
                             >
                               <GitCompare className="w-3 h-3" />
-                              Compare
+                              {tr.common.compare}
                             </button>
                           </td>
                         </tr>
@@ -386,14 +393,14 @@ export const SimilarItemsPanel: React.FC<SimilarItemsPanelProps> = ({
             <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="bg-slate-50 dark:bg-slate-950/60 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800 whitespace-nowrap">
-                  <th className="py-2.5 px-3 font-medium">Match</th>
-                  <th className="py-2.5 px-3 font-medium">Codes &amp; Descriptions in Cluster</th>
-                  <th className="py-2.5 px-3 font-medium">Signals &amp; Spec Diff</th>
-                  <th className="py-2.5 px-3 font-medium text-right">Bought / Stock</th>
-                  <th className="py-2.5 px-3 font-medium text-right">Price Spread</th>
-                  <th className="py-2.5 px-3 font-medium text-right">Combined Spend</th>
-                  <th className="py-2.5 px-3 font-medium">Verification</th>
-                  <th className="py-2.5 px-3 font-medium text-right">Action</th>
+                  <th className="py-2.5 px-3 font-medium">{tr.similar.colMatch}</th>
+                  <th className="py-2.5 px-3 font-medium">{tr.similar.colClusterTitle}</th>
+                  <th className="py-2.5 px-3 font-medium">{tr.similar.colSignalsShort}</th>
+                  <th className="py-2.5 px-3 font-medium text-right">{tr.similar.colBoughtStock}</th>
+                  <th className="py-2.5 px-3 font-medium text-right">{tr.similar.colPriceSpread}</th>
+                  <th className="py-2.5 px-3 font-medium text-right">{tr.similar.colCombinedSpend}</th>
+                  <th className="py-2.5 px-3 font-medium">{tr.similar.colVerification}</th>
+                  <th className="py-2.5 px-3 font-medium text-right">{tr.common.action}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800/70">
@@ -410,7 +417,7 @@ export const SimilarItemsPanel: React.FC<SimilarItemsPanelProps> = ({
                         <div className="font-mono tabular-nums font-bold text-sm text-slate-900 dark:text-white">
                           {group.maxSimilarity}%
                         </div>
-                        <StatusBadge label={tierMeta.label} tone={tierMeta.tone} />
+                        <StatusBadge label={tr.similar.tiers[group.tier]} tone={tierMeta.tone} />
                       </td>
                       <td className="py-2.5 px-3 space-y-1.5 max-w-[420px]">
                         {group.materials.map((m) => (
@@ -428,10 +435,10 @@ export const SimilarItemsPanel: React.FC<SimilarItemsPanelProps> = ({
                         ))}
                       </td>
                       <td className="py-2.5 px-3 max-w-[230px] text-[11px] text-slate-500 dark:text-slate-400 space-y-1">
-                        <div>{group.matchReasons.join(' · ')}</div>
+                        <div>{group.matchReasons.map((r) => translateMatchReason(r, lang)).join(' · ')}</div>
                         {group.specDifferences.length > 0 && (
                           <div className="font-mono text-amber-600 dark:text-amber-300">
-                            Spec diff: {group.specDifferences.join(' · ')}
+                            {tr.similar.specDiffPrefix} {group.specDifferences.join(' · ')}
                           </div>
                         )}
                       </td>
@@ -440,7 +447,7 @@ export const SimilarItemsPanel: React.FC<SimilarItemsPanelProps> = ({
                           {formatNumber(group.combinedOrderedQty, 0)}
                         </div>
                         <div className="text-[11px] text-emerald-600 dark:text-emerald-400">
-                          Stock: {formatNumber(group.combinedStockPlant0003, 0)}
+                          {tr.common.stock}: {formatNumber(group.combinedStockPlant0003, 0)}
                         </div>
                       </td>
                       <td className="py-2.5 px-3 text-right font-mono tabular-nums whitespace-nowrap">
@@ -458,7 +465,7 @@ export const SimilarItemsPanel: React.FC<SimilarItemsPanelProps> = ({
                         {formatCurrency(group.combinedSpendBrl, 'BRL')}
                       </td>
                       <td className="py-2.5 px-3 whitespace-nowrap space-y-1">
-                        <StatusBadge label={auditMeta.label} tone={auditMeta.tone} />
+                        <StatusBadge label={tr.similar.auditStatus[group.auditStatus]} tone={auditMeta.tone} />
                         {group.auditNote && (
                           <div className="text-[11px] text-slate-500 max-w-[140px] truncate" title={group.auditNote}>
                             {group.auditNote}
@@ -472,11 +479,11 @@ export const SimilarItemsPanel: React.FC<SimilarItemsPanelProps> = ({
                             e.stopPropagation();
                             setSelectedGroupId(group.groupId);
                           }}
-                          aria-label={`Compare similar cluster ${group.groupId}`}
+                          aria-label={fmt(tr.similar.compareAria, { id: group.groupId })}
                           className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
                         >
                           <Eye className="w-3 h-3" />
-                          Compare
+                          {tr.common.compare}
                         </button>
                       </td>
                     </tr>

@@ -46,6 +46,8 @@ export interface ProcessDetailJson {
   LI_FEE?: number;
   DEMURRAGE_COST?: number;
   PI_NUMBER?: string;
+  DT_NF?: string;
+  DATA_NF?: string;
 }
 
 export interface FiscalDetailJson {
@@ -339,6 +341,8 @@ export interface MatrixMaterialRow {
   ncm: string;
   um: string;
   estoque: number;
+  elementoPep: string;
+  elementoPepCode: string;
   quantities: Record<string, number>;
   qtdAcDefault: number;
   acNumber: string;
@@ -671,5 +675,369 @@ export interface NumerarioAnalysisResult {
     color: string;
   }>;
 }
+
+export type ShipmentWorthinessVerdict = 'EFFICIENT' | 'REVIEW' | 'NOT_WORTH_IT';
+export type AirEvaluationVerdict =
+  | 'JUSTIFIED_AIR'
+  | 'QUESTIONABLE_AIR'
+  | 'AVOIDABLE_AIR'
+  | 'NOT_APPLICABLE';
+
+export type CostOptimizationCategory =
+  | 'MODAL'
+  | 'STORAGE_PORT'
+  | 'INCOTERM'
+  | 'DRAWBACK_AC'
+  | 'SUPPLIER_SLA'
+  | 'PURCHASING_BATCH';
+
+export interface CostOptimizationAction {
+  code: string;
+  category: CostOptimizationCategory;
+  priority: 'HIGH' | 'MEDIUM' | 'LOW';
+  title: string;
+  detail: string;
+  observedWasteBrl: number;
+}
+
+export interface ShipmentAirEvaluation {
+  isAir: boolean;
+  verdict: AirEvaluationVerdict;
+  headline: string;
+  rationale: string;
+  freightPctOverFob: number;
+  airportDwellDays: number;
+  stockCoveragePct: number;
+}
+
+export interface ShipmentItemTroubleSummary {
+  hasRecurringTrouble: boolean;
+  lateOrderCount: number;
+  totalHistoricalOrders: number;
+  repeatAirCount: number;
+  historicalDelayAvgDays: number;
+  missingAcOrders: number;
+  affectedMaterials: string[];
+  troubleSignals: string[];
+}
+
+export interface ShipmentCostBenefitRow {
+  ref: string;
+  poList: string;
+  exporter: string;
+  pepProject: string;
+  modal: string;
+  incoterm: string;
+  status: ShipmentOperationalStatus;
+  canal: ShipmentProcessRow['canal'];
+  etd: string;
+  eta: string;
+  fobBrl: number;
+  cifBrl: number;
+  intlFreightBrl: number;
+  insuranceBrl: number;
+  storageBrl: number;
+  capataziaBrl: number;
+  afrmmBrl: number;
+  truckingBrl: number;
+  brokerFeeBrl: number;
+  liFeeBrl: number;
+  ecotaxBrl: number;
+  demurrageBrl: number;
+  customsTaxesBrl: number;
+  totalLogisticsCostBrl: number;
+  totalExtraCostBrl: number;
+  totalLandedBrl: number;
+  landedMultiplier: number;
+  freightPctOverFob: number;
+  storagePctOverFob: number;
+  logisticsPctOverFob: number;
+  taxesPctOverFob: number;
+  totalExtraPctOverFob: number;
+  daysInPort: number;
+  periodos: number;
+  transitTime: number;
+  leadTime: number;
+  maxOrderDelayDays: number;
+  stockPlant0003Total: number;
+  observedAvoidableWasteBrl: number;
+  worthinessVerdict: ShipmentWorthinessVerdict;
+  worthinessReasons: string[];
+  airEvaluation: ShipmentAirEvaluation;
+  itemTroubleSummary: ShipmentItemTroubleSummary;
+  recommendations: CostOptimizationAction[];
+  process: ShipmentProcessRow;
+}
+
+export interface MaterialTroubleProfile {
+  materialCode: string;
+  descPt: string;
+  descEn: string;
+  ncm: string;
+  primarySupplier: string;
+  orderCount: number;
+  lineCount: number;
+  lateOrderCount: number;
+  delayedRatePct: number;
+  avgDelayDays: number;
+  maxDelayDays: number;
+  airShipmentCount: number;
+  seaShipmentCount: number;
+  exwOrderCount: number;
+  missingAcCount: number;
+  totalSpendBrl: number;
+  totalFreightAndStorageBrl: number;
+  totalStorageAndDemurrageBrl: number;
+  avgCostOverFobPct: number;
+  stockPlant0003: number;
+  severity: 'HIGH' | 'MEDIUM' | 'LOW';
+  troubleSignals: string[];
+  recommendedFutureFix: string;
+  linkedProcesses: string[];
+}
+
+export interface ShipmentWorthinessAnalysisResult {
+  rows: ShipmentCostBenefitRow[];
+  materialTroubles: MaterialTroubleProfile[];
+  summary: {
+    totalShipments: number;
+    totalFobBrl: number;
+    totalLogisticsCostBrl: number;
+    totalTaxesBrl: number;
+    totalExtraCostBrl: number;
+    totalLandedBrl: number;
+    weightedExtraPctOverFob: number;
+    weightedLogisticsPctOverFob: number;
+    efficientCount: number;
+    reviewCount: number;
+    notWorthItCount: number;
+    airShipmentCount: number;
+    justifiedAirCount: number;
+    questionableOrAvoidableAirCount: number;
+    recurringTroubleSkuCount: number;
+    highTroubleSkuCount: number;
+    observedAvoidableWasteBrl: number;
+  };
+  chartCostRatioByProcess: Array<{
+    name: string;
+    processRef: string;
+    fobBrl: number;
+    logisticsBrl: number;
+    taxesBrl: number;
+    extraPctOverFob: number;
+    verdict: ShipmentWorthinessVerdict;
+  }>;
+  chartWasteDrivers: Array<{
+    name: string;
+    key: string;
+    valueBrl: number;
+    color: string;
+  }>;
+}
+
+export interface ComexChartsAnalyticsResult {
+  totals: {
+    totalShipments: number;
+    totalPoCount: number;
+    totalItemLines: number;
+    registeredDiCount: number;
+    total20Cntr: number;
+    total40Cntr: number;
+    totalContainers: number;
+    totalTeus: number;
+    seaShipments: number;
+    airShipments: number;
+    roadShipments: number;
+    totalIntlFreightBrl: number;
+    totalNationalFreightBrl: number;
+    totalFreightBrl: number;
+    freightPctOfFob: number;
+    totalTaxesBrl: number;
+    iiBrl: number;
+    ipiBrl: number;
+    pisBrl: number;
+    cofinsBrl: number;
+    icmsBrl: number;
+    siscomexBrl: number;
+    afrmmBrl: number;
+    totalDelayDays: number;
+    delayedPoCount: number;
+    delayedLineCount: number;
+    avgDelayDays: number;
+    maxDelayDays: number;
+    onTimeRatePct: number;
+    avgClearanceDays: number;
+    clearedProcessCount: number;
+    avgNfTurnaroundDays: number;
+    nfIssuedCount: number;
+    nfPendingCount: number;
+    avgTransitDays: number;
+    avgLeadTimeDays: number;
+    avgStorageDays: number;
+    totalStoragePeriods: number;
+    totalStorageCostBrl: number;
+    totalInvoicesBrl: number;
+    totalShippedFobBrl: number;
+    totalOpenPoBrl: number;
+    drawbackFobBrl: number;
+    fullTaxFobBrl: number;
+    drawbackCoveragePct: number;
+  };
+  // 1. Quantity of Shipments (by Stage)
+  shipmentsByStage: Array<{
+    stage: ShipmentOperationalStatus;
+    count: number;
+    pct: number;
+    fobBrl: number;
+    color: string;
+  }>;
+  // 2. Channels of Customs (DI Parametrization)
+  customsChannels: Array<{
+    key: 'VERDE' | 'AMARELO' | 'VERMELHO' | 'CINZA' | '-';
+    count: number;
+    pct: number;
+    fobBrl: number;
+    color: string;
+  }>;
+  // 3. Quantity of Containers & Modal Mix
+  containerMix: Array<{
+    key: 'CNTR_20' | 'CNTR_40' | 'TEUS' | 'AIR' | 'SEA' | 'ROAD';
+    count: number;
+    color: string;
+  }>;
+  containersByProcess: Array<{
+    processRef: string;
+    shortRef: string;
+    c20: number;
+    c40: number;
+    teus: number;
+    modal: string;
+  }>;
+  // 4. Costs of Freight (BRL)
+  freightByProcess: Array<{
+    processRef: string;
+    shortRef: string;
+    exporterShort: string;
+    modal: string;
+    intlFreightBrl: number;
+    natFreightBrl: number;
+    totalFreightBrl: number;
+    freightPctFob: number;
+  }>;
+  // 5. Tax (Strict SAP Recorded Customs Taxes)
+  taxByType: Array<{
+    key: 'ICMS' | 'II' | 'COFINS' | 'IPI' | 'PIS' | 'SISCOMEX' | 'AFRMM';
+    valueBrl: number;
+    color: string;
+  }>;
+  taxByProcess: Array<{
+    processRef: string;
+    shortRef: string;
+    regime: string;
+    iiBrl: number;
+    ipiBrl: number;
+    pisCofinsBrl: number;
+    icmsBrl: number;
+    siscomexAfrmmBrl: number;
+    totalTaxesBrl: number;
+  }>;
+  // 6. Delays Totalized
+  delaysByStatus: Array<{
+    statusKey: 'ON_TIME' | 'COMPLETED' | 'DELAYED';
+    lineCount: number;
+    totalDelayDays: number;
+    color: string;
+  }>;
+  delaysByPo: Array<{
+    poNumber: string;
+    processRef: string;
+    supplierShort: string;
+    delayDays: number;
+    pendingQty: number;
+    valueBrl: number;
+  }>;
+  // 7. Time of Customs Clearance (Days)
+  clearanceByProcess: Array<{
+    processRef: string;
+    shortRef: string;
+    canal: string;
+    presenceToDiDays: number;
+    diToReleaseDays: number;
+    totalClearanceDays: number;
+    isCleared: boolean;
+    color: string;
+  }>;
+  // 8. Time of NF Issue & Factory Turnaround (Days)
+  nfByProcess: Array<{
+    processRef: string;
+    shortRef: string;
+    nfNumber: string;
+    nfStatusKey: 'ISSUED' | 'PENDING_NF' | 'AWAITING_CLEARANCE';
+    turnaroundDays: number;
+    color: string;
+  }>;
+  nfStatusSummary: Array<{
+    statusKey: 'ISSUED' | 'PENDING_NF' | 'AWAITING_CLEARANCE';
+    count: number;
+    fobBrl: number;
+    color: string;
+  }>;
+  // 9. Time of Delivery (Transit ETD->ETA vs Total Lead Time ETD->Delivery)
+  deliveryByProcess: Array<{
+    processRef: string;
+    shortRef: string;
+    modal: string;
+    transitDays: number;
+    portAndClearanceDays: number;
+    totalLeadTimeDays: number;
+  }>;
+  // 10. Time of Storage (Terminal Dwell Days, 10d Periods & Cost BRL)
+  storageByProcess: Array<{
+    processRef: string;
+    shortRef: string;
+    terminal: string;
+    storageDays: number;
+    storagePeriods: number;
+    storageCostBrl: number;
+    color: string;
+  }>;
+  // 11. Invoices Values (BRL by Process & MIRO/FI Settlement Status)
+  invoicesByProcess: Array<{
+    processRef: string;
+    shortRef: string;
+    exporterShort: string;
+    currency: string;
+    invoiceOrig: number;
+    invoiceBrl: number;
+    cifBrl: number;
+    miroStatusKey: 'PAID' | 'UPCOMING' | 'OVERDUE' | 'PROJECTED';
+    color: string;
+  }>;
+  invoicesByFinancialStatus: Array<{
+    statusKey: 'PAID' | 'UPCOMING' | 'OVERDUE' | 'PROJECTED';
+    count: number;
+    amountBrl: number;
+    color: string;
+  }>;
+  // 12. Relevant Team & Department Results (PEP Projects, Drawback & Team Workload)
+  pepProjectsChart: Array<{
+    pepCode: string;
+    pepLabel: string;
+    drawbackBrl: number;
+    fullTaxBrl: number;
+    totalFobBrl: number;
+    receivedPct: number;
+  }>;
+  teamResultsChart: Array<{
+    memberName: string;
+    roleKey: 'ANALYST' | 'BUYER';
+    processOrPoCount: number;
+    onTimeCount: number;
+    delayedCount: number;
+    fobBrl: number;
+    onTimePct: number;
+  }>;
+}
+
 
 

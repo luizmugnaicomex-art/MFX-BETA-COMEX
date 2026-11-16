@@ -24,6 +24,9 @@ import { formatCompactBrl } from '../utils/chartFormatters';
 import { exportKraljicWorkbook } from '../utils/exportReports';
 import { KRALJIC_META, MaterialCheckDrawer } from './MaterialCheckDrawer';
 import { StatusBadge } from './StatusBadge';
+import { useI18n } from '../i18n/I18nContext';
+import { fmt } from '../i18n/translations';
+import { translateKraljicStrategy, translateRiskDriver } from '../i18n/helpers';
 
 interface KraljicMatrixPanelProps {
   items: FupItemRow[];
@@ -45,6 +48,7 @@ export const KraljicMatrixPanel: React.FC<KraljicMatrixPanelProps> = ({
   onSaveKraljicOverride,
   onSelectProcess,
 }) => {
+  const { lang, tr } = useI18n();
   const [quadrantFilter, setQuadrantFilter] = useState<'ALL' | KraljicQuadrant>('ALL');
   const [localSearch, setLocalSearch] = useState('');
   const [selectedMaterialKey, setSelectedMaterialKey] = useState<string | null>(null);
@@ -98,6 +102,7 @@ export const KraljicMatrixPanel: React.FC<KraljicMatrixPanelProps> = ({
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         {QUADRANT_ORDER.map((qKey) => {
           const meta = KRALJIC_META[qKey];
+          const qTr = tr.kraljic.quadrants[qKey];
           const stat = analytics.quadrantSummary[qKey];
           const isSelected = quadrantFilter === qKey;
           return (
@@ -112,16 +117,23 @@ export const KraljicMatrixPanel: React.FC<KraljicMatrixPanelProps> = ({
               }`}
             >
               <div className="flex items-center justify-between gap-2">
-                <StatusBadge label={`${meta.label} (${meta.ptLabel})`} tone={meta.tone} />
+                <StatusBadge
+                  label={
+                    qTr.label.toLowerCase() === qTr.localLabel.toLowerCase()
+                      ? qTr.label
+                      : `${qTr.label} (${qTr.localLabel})`
+                  }
+                  tone={meta.tone}
+                />
                 <span className="text-xs font-mono tabular-nums text-slate-500 dark:text-slate-400">
-                  {stat.count} SKU{stat.count === 1 ? '' : 's'}
+                  {fmt(stat.count === 1 ? tr.kraljic.skuPlural : tr.kraljic.skusPlural, { count: stat.count })}
                 </span>
               </div>
               <div className="mt-2.5 text-xl font-bold font-mono tabular-nums text-slate-900 dark:text-white">
                 {formatCurrency(stat.spendBrl, 'BRL')}
               </div>
               <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
-                <span>{meta.subtitle}</span>
+                <span>{qTr.subtitle}</span>
                 <span className="font-mono tabular-nums font-semibold text-slate-700 dark:text-slate-200">
                   {stat.spendPct}%
                 </span>
@@ -136,10 +148,10 @@ export const KraljicMatrixPanel: React.FC<KraljicMatrixPanelProps> = ({
         <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3 mb-3">
           <div className="min-w-0">
             <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
-              Kraljic Strategic Purchasing Portfolio Matrix (Profit Impact × Supply Risk)
+              {tr.kraljic.chartTitle}
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Positioned by SAP spend/unit impact (Y) and supplier, delay, Drawback &amp; channel risk (X) · Click any dot to check &amp; calibrate
+              {tr.kraljic.chartSubtitle}
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -147,8 +159,8 @@ export const KraljicMatrixPanel: React.FC<KraljicMatrixPanelProps> = ({
               <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="text"
-                aria-label="Search Kraljic matrix"
-                placeholder="Filter material, risk..."
+                aria-label={tr.kraljic.searchAria}
+                placeholder={tr.kraljic.searchPlaceholder}
                 value={localSearch}
                 onChange={(e) => setLocalSearch(e.target.value)}
                 className="pl-8 pr-2.5 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white w-44"
@@ -161,7 +173,7 @@ export const KraljicMatrixPanel: React.FC<KraljicMatrixPanelProps> = ({
               className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition-colors whitespace-nowrap shrink-0"
             >
               <Download className="w-3.5 h-3.5" />
-              Export Kraljic Matrix.xlsx
+              {tr.kraljic.exportBtn}
             </button>
           </div>
         </div>
@@ -169,18 +181,18 @@ export const KraljicMatrixPanel: React.FC<KraljicMatrixPanelProps> = ({
         {/* Quadrant Guide Labels */}
         <div className="grid grid-cols-2 gap-2 text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-2">
           <div className="flex items-center justify-between px-3 py-1 rounded bg-emerald-500/8 text-emerald-700 dark:text-emerald-300">
-            <span>Top-Left: LEVERAGE (Alavancagem)</span>
-            <span>High Spend · Low Risk</span>
+            <span>{tr.kraljic.guideTopLeft}</span>
+            <span>{tr.kraljic.guideTopLeftDesc}</span>
           </div>
           <div className="flex items-center justify-between px-3 py-1 rounded bg-rose-500/8 text-rose-700 dark:text-rose-300">
-            <span>Top-Right: STRATEGIC (Estratégicos)</span>
-            <span>High Spend · High Risk</span>
+            <span>{tr.kraljic.guideTopRight}</span>
+            <span>{tr.kraljic.guideTopRightDesc}</span>
           </div>
         </div>
 
         {scatterPoints.length === 0 ? (
           <div className="h-64 flex items-center justify-center text-xs text-slate-500 dark:text-slate-400">
-            No materials match the selected Kraljic quadrant or search filter.
+            {tr.kraljic.emptyChart}
           </div>
         ) : (
           <div className="h-72 text-slate-700 dark:text-slate-200">
@@ -190,12 +202,12 @@ export const KraljicMatrixPanel: React.FC<KraljicMatrixPanelProps> = ({
                 <XAxis
                   type="number"
                   dataKey="supplyRisk"
-                  name="Supply Risk"
+                  name={tr.kraljic.colRisk}
                   domain={[0, 105]}
                   ticks={[0, 25, 50, 75, 100]}
                   tick={{ fontSize: 10, fill: '#94a3b8' }}
                   label={{
-                    value: 'Supply Risk Score (0–100)',
+                    value: tr.kraljic.xAxisLabel,
                     position: 'insideBottom',
                     offset: -10,
                     fontSize: 11,
@@ -205,19 +217,19 @@ export const KraljicMatrixPanel: React.FC<KraljicMatrixPanelProps> = ({
                 <YAxis
                   type="number"
                   dataKey="profitImpact"
-                  name="Profit Impact"
+                  name={tr.kraljic.yAxisLabel}
                   domain={[0, 106]}
                   ticks={[0, 25, 50, 75, 100]}
                   tick={{ fontSize: 10, fill: '#94a3b8' }}
                   label={{
-                    value: 'Profit Impact',
+                    value: tr.kraljic.yAxisLabel,
                     angle: -90,
                     position: 'insideLeft',
                     fontSize: 11,
                     fill: '#94a3b8',
                   }}
                 />
-                <ZAxis type="number" dataKey="spendBrl" range={[90, 460]} name="Spend (BRL)" />
+                <ZAxis type="number" dataKey="spendBrl" range={[90, 460]} name={tr.kraljic.colTotalSpend} />
                 <ReferenceLine x={50} stroke="#64748b" strokeDasharray="5 5" />
                 <ReferenceLine y={50} stroke="#64748b" strokeDasharray="5 5" />
                 <Tooltip
@@ -230,13 +242,13 @@ export const KraljicMatrixPanel: React.FC<KraljicMatrixPanelProps> = ({
                         <div className="font-mono font-bold text-cyan-300">{pt.materialCode}</div>
                         <div className="font-medium">{pt.descShort}</div>
                         <div className="text-slate-300">
-                          Quadrant: <strong>{KRALJIC_META[pt.quadrant].label}</strong>
+                          {tr.kraljic.tooltipQuadrant} <strong>{tr.kraljic.quadrants[pt.quadrant].label}</strong>
                         </div>
                         <div className="font-mono tabular-nums">
-                          Spend: {formatCurrency(pt.spendBrl, 'BRL')} ({pt.poCount} PO)
+                          {fmt(tr.kraljic.tooltipSpend, { val: formatCurrency(pt.spendBrl, 'BRL'), pos: pt.poCount })}
                         </div>
                         <div className="font-mono tabular-nums text-slate-300">
-                          Impact {pt.profitImpact}/100 · Risk {pt.supplyRisk}/100
+                          {fmt(tr.kraljic.tooltipScores, { impact: pt.profitImpact, risk: pt.supplyRisk })}
                         </div>
                       </div>
                     );
@@ -294,12 +306,12 @@ export const KraljicMatrixPanel: React.FC<KraljicMatrixPanelProps> = ({
 
         <div className="grid grid-cols-2 gap-2 text-[11px] font-medium text-slate-500 dark:text-slate-400 mt-2">
           <div className="flex items-center justify-between px-3 py-1 rounded bg-slate-500/8 text-slate-600 dark:text-slate-300">
-            <span>Bottom-Left: NON-CRITICAL (Não Críticos)</span>
-            <span>Low Spend · Low Risk</span>
+            <span>{tr.kraljic.guideBottomLeft}</span>
+            <span>{tr.kraljic.guideBottomLeftDesc}</span>
           </div>
           <div className="flex items-center justify-between px-3 py-1 rounded bg-amber-500/8 text-amber-700 dark:text-amber-300">
-            <span>Bottom-Right: BOTTLENECK (Gargalo)</span>
-            <span>Low Spend · High Risk</span>
+            <span>{tr.kraljic.guideBottomRight}</span>
+            <span>{tr.kraljic.guideBottomRightDesc}</span>
           </div>
         </div>
       </div>
@@ -309,10 +321,10 @@ export const KraljicMatrixPanel: React.FC<KraljicMatrixPanelProps> = ({
         <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
-              Kraljic Action Matrix &amp; Risk Diagnostics ({filteredMaterials.length})
+              {fmt(tr.kraljic.tableTitle, { count: filteredMaterials.length })}
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Review computed risk drivers, recommended procurement strategy, and click Check to inspect or recalibrate
+              {tr.kraljic.tableSubtitle}
             </p>
           </div>
           {quadrantFilter !== 'ALL' && (
@@ -321,7 +333,7 @@ export const KraljicMatrixPanel: React.FC<KraljicMatrixPanelProps> = ({
               onClick={() => setQuadrantFilter('ALL')}
               className="text-xs font-medium text-cyan-600 dark:text-cyan-400 hover:underline"
             >
-              Show All 4 Quadrants
+              {tr.kraljic.showAllQuadrants}
             </button>
           )}
         </div>
@@ -330,22 +342,22 @@ export const KraljicMatrixPanel: React.FC<KraljicMatrixPanelProps> = ({
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-50 dark:bg-slate-950/60 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800 whitespace-nowrap">
-                <th className="py-2.5 px-3 font-medium">Material</th>
-                <th className="py-2.5 px-3 font-medium">Quadrant</th>
-                <th className="py-2.5 px-3 font-medium text-right">Impact</th>
-                <th className="py-2.5 px-3 font-medium text-right">Risk</th>
-                <th className="py-2.5 px-3 font-medium">SAP Risk Drivers</th>
-                <th className="py-2.5 px-3 font-medium text-right">Total Spend (BRL)</th>
-                <th className="py-2.5 px-3 font-medium text-right">Bought / Used</th>
-                <th className="py-2.5 px-3 font-medium">Recommended Strategy</th>
-                <th className="py-2.5 px-3 font-medium text-right">Action</th>
+                <th className="py-2.5 px-3 font-medium">{tr.kraljic.colMaterial}</th>
+                <th className="py-2.5 px-3 font-medium">{tr.kraljic.colQuadrant}</th>
+                <th className="py-2.5 px-3 font-medium text-right">{tr.kraljic.colImpact}</th>
+                <th className="py-2.5 px-3 font-medium text-right">{tr.kraljic.colRisk}</th>
+                <th className="py-2.5 px-3 font-medium">{tr.kraljic.colRiskDrivers}</th>
+                <th className="py-2.5 px-3 font-medium text-right">{tr.kraljic.colTotalSpend}</th>
+                <th className="py-2.5 px-3 font-medium text-right">{tr.kraljic.colBoughtUsed}</th>
+                <th className="py-2.5 px-3 font-medium">{tr.kraljic.colStrategy}</th>
+                <th className="py-2.5 px-3 font-medium text-right">{tr.kraljic.colAction}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/70">
               {filteredMaterials.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="py-8 px-3 text-center text-xs text-slate-500 dark:text-slate-400">
-                    No materials match the active Kraljic filters.
+                    {tr.kraljic.emptyTable}
                   </td>
                 </tr>
               ) : (
@@ -361,7 +373,7 @@ export const KraljicMatrixPanel: React.FC<KraljicMatrixPanelProps> = ({
                         <div className="font-mono font-semibold text-slate-900 dark:text-white">
                           {mat.materialCode}{' '}
                           <span className="font-normal text-[11px] text-slate-400">
-                            · {mat.suppliers.length} sup
+                            · {mat.suppliers.length} {tr.kraljic.supShort}
                           </span>
                         </div>
                         <div className="text-slate-600 dark:text-slate-300 truncate" title={mat.descPt}>
@@ -369,7 +381,7 @@ export const KraljicMatrixPanel: React.FC<KraljicMatrixPanelProps> = ({
                         </div>
                       </td>
                       <td className="py-2.5 px-3 whitespace-nowrap">
-                        <StatusBadge label={meta.label} tone={meta.tone} />
+                        <StatusBadge label={tr.kraljic.quadrants[mat.kraljicQuadrant].label} tone={meta.tone} />
                       </td>
                       <td className="py-2.5 px-3 text-right font-mono tabular-nums text-slate-900 dark:text-white">
                         {mat.profitImpactScore}
@@ -378,7 +390,7 @@ export const KraljicMatrixPanel: React.FC<KraljicMatrixPanelProps> = ({
                         {mat.supplyRiskScore}
                       </td>
                       <td className="py-2.5 px-3 max-w-[220px] text-slate-600 dark:text-slate-300">
-                        {mat.riskDrivers.join(' · ') || 'Low friction'}
+                        {mat.riskDrivers.map((d) => translateRiskDriver(d, lang)).join(' · ') || tr.kraljic.lowFriction}
                       </td>
                       <td className="py-2.5 px-3 text-right font-mono tabular-nums font-semibold text-slate-900 dark:text-white whitespace-nowrap">
                         {formatCurrency(mat.totalSpendBrl, 'BRL')}
@@ -387,7 +399,7 @@ export const KraljicMatrixPanel: React.FC<KraljicMatrixPanelProps> = ({
                         {formatNumber(mat.totalOrderedQty, 0)} / {formatNumber(mat.effectiveUsageQty, 0)} {mat.unit}
                       </td>
                       <td className="py-2.5 px-3 max-w-[240px] text-slate-600 dark:text-slate-300">
-                        {mat.overrideNote || mat.recommendedStrategy}
+                        {mat.overrideNote || translateKraljicStrategy(mat.kraljicQuadrant, lang)}
                       </td>
                       <td className="py-2.5 px-3 text-right whitespace-nowrap">
                         <button
@@ -396,11 +408,11 @@ export const KraljicMatrixPanel: React.FC<KraljicMatrixPanelProps> = ({
                             e.stopPropagation();
                             setSelectedMaterialKey(mat.materialKey);
                           }}
-                          aria-label={`Check Kraljic item ${mat.materialCode}`}
+                          aria-label={fmt(tr.kraljic.checkAria, { code: mat.materialCode })}
                           className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
                         >
                           <Eye className="w-3 h-3" />
-                          Check
+                          {tr.common.check}
                         </button>
                       </td>
                     </tr>

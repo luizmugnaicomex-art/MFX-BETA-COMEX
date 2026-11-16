@@ -2,19 +2,19 @@ import type { CSSProperties } from 'react';
 
 export function formatCompactBrl(value: number, showZero = false): string {
   if (!Number.isFinite(value)) return '';
-  if (value === 0) return showZero ? 'R$ 0' : '';
+  if (value === 0) return showZero ? 'R$\u00A00' : '';
   const abs = Math.abs(value);
   const sign = value < 0 ? '-' : '';
   if (abs >= 1_000_000) {
-    return `${sign}R$ ${(abs / 1_000_000).toFixed(2).replace('.', ',')}M`;
+    return `${sign}R$\u00A0${(abs / 1_000_000).toFixed(2).replace('.', ',')}M`;
   }
   if (abs >= 100_000) {
-    return `${sign}R$ ${Math.round(abs / 1_000)}k`;
+    return `${sign}R$\u00A0${Math.round(abs / 1_000)}k`;
   }
   if (abs >= 1_000) {
-    return `${sign}R$ ${(abs / 1_000).toFixed(1).replace('.', ',')}k`;
+    return `${sign}R$\u00A0${(abs / 1_000).toFixed(1).replace('.', ',')}k`;
   }
-  return `${sign}R$ ${Math.round(abs)}`;
+  return `${sign}R$\u00A0${Math.round(abs)}`;
 }
 
 export function formatAxisBrl(value: number): string {
