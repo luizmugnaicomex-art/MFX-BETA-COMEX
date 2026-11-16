@@ -23,10 +23,18 @@ export const OrderStatusMatrix: React.FC<OrderStatusMatrixProps> = ({
 
   const matrix = useMemo(() => buildOrderStatusMatrix(items, overrides), [items, overrides]);
 
+  const effectiveProjectFilter = useMemo(
+    () =>
+      matrix.sections.some((s) => s.sectionKey === localProjectFilter)
+        ? localProjectFilter
+        : '',
+    [matrix.sections, localProjectFilter]
+  );
+
   const filteredSections = useMemo(() => {
     const q = localMaterialSearch.trim().toLowerCase();
     return matrix.sections
-      .filter((s) => !localProjectFilter || s.sectionKey === localProjectFilter)
+      .filter((s) => !effectiveProjectFilter || s.sectionKey === effectiveProjectFilter)
       .map((s) => ({
         ...s,
         materials: s.materials.filter(
@@ -39,7 +47,7 @@ export const OrderStatusMatrix: React.FC<OrderStatusMatrixProps> = ({
         ),
       }))
       .filter((s) => s.materials.length > 0);
-  }, [matrix.sections, localProjectFilter, localMaterialSearch]);
+  }, [matrix.sections, effectiveProjectFilter, localMaterialSearch]);
 
   const totalQtdAc = useMemo(() => {
     let sum = 0;
@@ -58,7 +66,7 @@ export const OrderStatusMatrix: React.FC<OrderStatusMatrixProps> = ({
         <div className="flex flex-wrap items-center gap-3">
           <select
             aria-label="Filter matrix by project"
-            value={localProjectFilter}
+            value={effectiveProjectFilter}
             onChange={(e) => setLocalProjectFilter(e.target.value)}
             className="px-3 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100"
           >

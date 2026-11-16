@@ -184,12 +184,19 @@ export const PartnerSwotCenter: React.FC<PartnerSwotCenterProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/70 whitespace-nowrap">
-              {categoryCards.map((card) => {
-                const isSelected = selectedPartner?.id === card.id;
-                return (
-                  <tr
-                    key={card.id}
-                    onClick={() => setSelectedPartnerId(card.id)}
+              {categoryCards.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="py-8 px-4 text-center text-xs text-slate-500 dark:text-slate-400">
+                    No partners in this category match the active filters.
+                  </td>
+                </tr>
+              ) : (
+                categoryCards.map((card) => {
+                  const isSelected = selectedPartner?.id === card.id;
+                  return (
+                    <tr
+                      key={card.id}
+                      onClick={() => setSelectedPartnerId(card.id)}
                     className={`cursor-pointer transition-colors ${
                       isSelected
                         ? 'bg-cyan-500/10 dark:bg-cyan-500/15'
@@ -250,7 +257,8 @@ export const PartnerSwotCenter: React.FC<PartnerSwotCenterProps> = ({
                     )}
                   </tr>
                 );
-              })}
+                })
+              )}
             </tbody>
           </table>
         </div>

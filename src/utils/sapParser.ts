@@ -24,14 +24,47 @@ export function formatAtoConcessorio(value: unknown): string {
     if (!Number.isFinite(value) || value === 0) return '';
     return Math.trunc(value).toString();
   }
-  const str = String(value).trim();
-  if (!str) return '';
-  // Handle scientific notation like "2.024002415E10" or trailing ".0"
-  if (/^\d+(\.\d+)?[eE][+-]?\d+$/.test(str)) {
-    const num = Number(str);
-    return Number.isFinite(num) ? Math.trunc(num).toString() : str;
-  }
-  return str.replace(/\.0+$/, '');
+  const raw = String(value).trim();
+  if (!raw) return '';
+
+  const tokens = raw
+    .split(/[,;/]+/)
+    .map((part) => {
+      let str = part.trim();
+      if (!str || str === '-') return '';
+      // Handle scientific notation like "2.024002415E10" or trailing ".0"
+      if (/^\d+(\.\d+)?[eE][+-]?\d+$/.test(str)) {
+        const num = Number(str);
+        str = Number.isFinite(num) ? Math.trunc(num).toString() : str;
+      } else {
+        str = str.replace(/\.0+$/, '');
+      }
+      if (/^0+$/.test(str)) return '';
+      if (/^\d+$/.test(str)) {
+        return str.replace(/^0+/, '');
+      }
+      return str;
+    })
+    .filter(Boolean);
+
+  return Array.from(new Set(tokens)).join(', ');
+}
+
+export function normalizeNcmList(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  const raw = String(value).trim();
+  if (!raw) return '';
+
+  const tokens = raw
+    .split(/[,;/]+/)
+    .map((part) => part.trim())
+    .filter((part) => {
+      if (!part || part === '-' || part.toUpperCase() === 'SEM NCM') return false;
+      if (/^0+([.\s]0+)*$/.test(part)) return false;
+      return true;
+    });
+
+  return Array.from(new Set(tokens)).join(', ');
 }
 
 export function safeJsonParse<T>(raw: unknown, fallback: T): T {
@@ -270,7 +303,7 @@ export function normalizeFupRow(raw: Record<string, unknown>, index: number): Fu
     MATERIAL: stripLeadingZeros(pick(raw, 'MATERIAL', 'MATNR')),
     DESCRICAO_MATERIAL: String(pick(raw, 'DESCRICAO_MATERIAL', 'TXZ01') || '').trim(),
     DESCRICAO_MATERIAL_INGLES: String(pick(raw, 'DESCRICAO_MATERIAL_INGLES') || '').trim(),
-    FUP_NCMS: String(pick(raw, 'FUP_NCMS', 'NCM') || firstFiscal.NCM || '').trim(),
+    FUP_NCMS: normalizeNcmList(pick(raw, 'FUP_NCMS', 'NCM') || firstFiscal.NCM || ''),
     UNIDADE: String(pick(raw, 'UNIDADE', 'MEINS') || 'UND').trim(),
     MOEDA: String(pick(raw, 'MOEDA', 'WAERS') || 'USD').trim().toUpperCase(),
     PRECO_UNITARIO: parseNumber(pick(raw, 'PRECO_UNITARIO', 'NETPR')),

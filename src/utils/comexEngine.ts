@@ -1,6 +1,7 @@
 import type {
   CashFlowEntry,
   ComexFilters,
+  DateFilterBasis,
   FupItemRow,
   MatrixColumnMeta,
   MatrixMaterialRow,
@@ -22,8 +23,59 @@ export function isDrawbackExpectedNcm(ncm: string): boolean {
   return DRAWBACK_COMMON_NCM_PREFIXES.some((p) => clean.startsWith(p));
 }
 
+export function resolveItemFilterDate(
+  item: FupItemRow,
+  basis: DateFilterBasis = 'OPS'
+): string {
+  switch (basis) {
+    case 'PO':
+      return item.DATA_PEDIDO || '';
+    case 'ETD':
+      return item.ETD || '';
+    case 'ETA':
+      return item.ETA || '';
+    case 'DI':
+      return item.DATA_DI || '';
+    case 'DELIVERY':
+      return (
+        item.DATA_ENTREGA_MFX ||
+        item.ULTIMA_DATA_RECEBIMENTO ||
+        item.DATA_ENTREGA_PREVISTA ||
+        ''
+      );
+    case 'OPS':
+    default:
+      return (
+        item.ETD ||
+        item.ETA ||
+        item.DATA_DI ||
+        item.FUP_DATA_PRESENCA_CARGA ||
+        item.DATA_DESEMBARACO ||
+        item.DATA_ENTREGA_MFX ||
+        item.DATA_PEDIDO ||
+        item.DATA_ENTREGA_PREVISTA ||
+        item.ULTIMA_DATA_RECEBIMENTO ||
+        ''
+      );
+  }
+}
+
+export function extractAvailableYears(
+  items: FupItemRow[],
+  basis: DateFilterBasis = 'OPS'
+): string[] {
+  const years = new Set<string>();
+  for (const item of items) {
+    const iso = resolveItemFilterDate(item, basis);
+    const match = iso.match(/^(\d{4})-\d{2}-\d{2}/);
+    if (match) years.add(match[1]);
+  }
+  return Array.from(years).sort((a, b) => b.localeCompare(a));
+}
+
 export function filterFupItems(items: FupItemRow[], filters: ComexFilters): FupItemRow[] {
   const q = filters.search.trim().toLowerCase();
+  const dateBasis: DateFilterBasis = filters.dateField || 'OPS';
 
   return items.filter((item) => {
     if (filters.hideDeleted) {
@@ -35,14 +87,36 @@ export function filterFupItems(items: FupItemRow[], filters: ComexFilters): FupI
     if (filters.atoConcessorio) {
       if (filters.atoConcessorio === '__MISSING__') {
         if (item.FUP_ATO_CONCESSORIO) return false;
-      } else if (item.FUP_ATO_CONCESSORIO !== filters.atoConcessorio) {
-        return false;
+      } else {
+        const acTokens = item.FUP_ATO_CONCESSORIO.split(',').map((s) => s.trim());
+        if (
+          item.FUP_ATO_CONCESSORIO !== filters.atoConcessorio &&
+          !acTokens.includes(filters.atoConcessorio)
+        ) {
+          return false;
+        }
       }
     }
     if (filters.supplier && item.NOME_FORNECEDOR !== filters.supplier) return false;
-    if (filters.ncm && item.FUP_NCMS !== filters.ncm) return false;
+    if (filters.ncm) {
+      if (filters.ncm === '__MISSING__' || filters.ncm === 'SEM NCM') {
+        if (item.FUP_NCMS) return false;
+      } else {
+        const ncmTokens = item.FUP_NCMS.split(',').map((s) => s.trim());
+        if (item.FUP_NCMS !== filters.ncm && !ncmTokens.includes(filters.ncm)) {
+          return false;
+        }
+      }
+    }
     if (filters.buyer && item.NOME_COMPRADOR !== filters.buyer) return false;
     if (filters.status && item.STATUS_PRAZO_ENTREGA !== filters.status) return false;
+
+    if (filters.year || filters.month) {
+      const refIso = resolveItemFilterDate(item, dateBasis);
+      if (!refIso || refIso.length < 7) return false;
+      if (filters.year && refIso.slice(0, 4) !== filters.year) return false;
+      if (filters.month && refIso.slice(5, 7) !== filters.month) return false;
+    }
 
     if (q) {
       const haystack = [
@@ -203,11 +277,14 @@ export function computeExecutiveKpis(
       acNumbers: new Set<string>(),
     };
     curr.itemCount += 1;
-    curr.openQty += item.QUANTIDADE_PENDENTE;
+    curr.openQty += Math.max(0, item.QUANTIDADE_PENDENTE);
     curr.totalValue += item.VALOR_LIQUIDO;
     if (item.FUP_ATO_CONCESSORIO) {
       curr.hasDrawbackCount += 1;
-      curr.acNumbers.add(item.FUP_ATO_CONCESSORIO);
+      for (const acToken of item.FUP_ATO_CONCESSORIO.split(',')) {
+        const cleanAc = acToken.trim();
+        if (cleanAc) curr.acNumbers.add(cleanAc);
+      }
     } else if (isDrawbackExpectedNcm(ncm)) {
       curr.missingAcAlert = true;
     }
@@ -433,8 +510,14 @@ export function buildShipmentProcesses(
       incoterm: primary.FUP_INCOTERM || '-',
       cntr: procJson.TIPO_CONTEINER || (primary.FUP_TIPO_EMBARQUE === 'A' ? 'LCL/AIR' : '-'),
       seal: procJson.LACRE || '-',
-      c20: procJson.CONTAINERS_20 ?? (procJson.TIPO_CONTEINER?.includes('20') ? 1 : 0),
-      c40: procJson.CONTAINERS_40 ?? (procJson.TIPO_CONTEINER?.includes('40') ? 1 : 0),
+      ...(() => {
+        const counts = parseContainerCounts(
+          procJson.TIPO_CONTEINER,
+          procJson.CONTAINERS_20,
+          procJson.CONTAINERS_40
+        );
+        return { c20: counts.c20, c40: counts.c40 };
+      })(),
       invPck: ov.invPckStatus || (procJson.INV_DO_EXPORTADOR ? 'OK' : 'PEND'),
       origBl: ov.origBlStatus || (primary.CONHECIMENTO_EMBARQUE ? 'OK' : 'PEND'),
       regTrib,
@@ -1032,3 +1115,228 @@ export function buildPartnerScorecards(
 
   return cards;
 }
+
+export function parseContainerCounts(
+  tipoConteiner?: string,
+  explicit20?: number,
+  explicit40?: number
+): { c20: number; c40: number } {
+  const raw = (tipoConteiner || '').toUpperCase();
+
+  let c20 = 0;
+  if (typeof explicit20 === 'number' && !Number.isNaN(explicit20)) {
+    c20 = Math.max(0, explicit20);
+  } else {
+    const match20 = [...raw.matchAll(/(\d+)\s*[X×*]\s*20(?!\d)/g)];
+    if (match20.length > 0) {
+      c20 = match20.reduce((sum, m) => sum + Number(m[1] || 0), 0);
+    } else if (/(?<!\d)20(?!\d)/.test(raw)) {
+      c20 = 1;
+    }
+  }
+
+  let c40 = 0;
+  if (typeof explicit40 === 'number' && !Number.isNaN(explicit40)) {
+    c40 = Math.max(0, explicit40);
+  } else {
+    const match40 = [...raw.matchAll(/(\d+)\s*[X×*]\s*40(?!\d)/g)];
+    if (match40.length > 0) {
+      c40 = match40.reduce((sum, m) => sum + Number(m[1] || 0), 0);
+    } else if (/(?<!\d)40(?!\d)/.test(raw)) {
+      c40 = 1;
+    }
+  }
+
+  return { c20, c40 };
+}
+
+export interface DirectorChartMetrics {
+  totalProcesses: number;
+  registeredDiCount: number;
+  channelBreakdown: Array<{
+    key: 'VERDE' | 'AMARELO' | 'VERMELHO' | 'CINZA' | '-';
+    label: string;
+    count: number;
+    pct: number;
+    fobBrl: number;
+    color: string;
+  }>;
+  containerAndModal: {
+    total20: number;
+    total40: number;
+    totalContainers: number;
+    totalTeus: number;
+    seaCount: number;
+    airCount: number;
+    roadCount: number;
+    demurrageWatchCount: number;
+    modalChartData: Array<{
+      label: string;
+      count: number;
+      teus: number;
+      color: string;
+    }>;
+  };
+  processPipeline: Array<{
+    stage: ShipmentOperationalStatus;
+    label: string;
+    count: number;
+    pct: number;
+    fobBrl: number;
+    color: string;
+  }>;
+  timingMetrics: {
+    avgTransitDays: number;
+    avgClearanceDays: number;
+    avgStorageDays: number;
+    avgLeadTimeDays: number;
+    perProcess: Array<{
+      processRef: string;
+      shortRef: string;
+      exporterShort: string;
+      transitDays: number;
+      clearanceDays: number;
+      storageDays: number;
+      leadTimeDays: number;
+      canal: string;
+    }>;
+  };
+}
+
+export function computeDirectorChartMetrics(processes: ShipmentProcessRow[]): DirectorChartMetrics {
+  const totalProcesses = processes.length;
+  const registeredDiCount = processes.filter((p) => p.canal !== '-').length;
+
+  const channelMeta: Array<{
+    key: 'VERDE' | 'AMARELO' | 'VERMELHO' | 'CINZA' | '-';
+    label: string;
+    color: string;
+  }> = [
+    { key: 'VERDE', label: 'Canal Verde', color: '#10b981' },
+    { key: 'AMARELO', label: 'Canal Amarelo', color: '#f59e0b' },
+    { key: 'VERMELHO', label: 'Canal Vermelho', color: '#f43f5e' },
+    { key: 'CINZA', label: 'Canal Cinza', color: '#64748b' },
+    { key: '-', label: 'Aguardando DI', color: '#06b6d4' },
+  ];
+
+  const channelBreakdown = channelMeta.map((meta) => {
+    const matched = processes.filter((p) => p.canal === meta.key);
+    const count = matched.length;
+    const pct = totalProcesses > 0 ? Math.round((count / totalProcesses) * 1000) / 10 : 0;
+    const fobBrl = matched.reduce((sum, p) => sum + p.brlFob, 0);
+    return { ...meta, count, pct, fobBrl };
+  });
+
+  const total20 = processes.reduce((s, p) => s + p.c20, 0);
+  const total40 = processes.reduce((s, p) => s + p.c40, 0);
+  const totalContainers = total20 + total40;
+  const totalTeus = total20 + total40 * 2;
+  const seaCount = processes.filter((p) => p.modal === 'MARÍTIMO').length;
+  const airCount = processes.filter((p) => p.modal === 'AÉREO').length;
+  const roadCount = processes.filter((p) => p.modal === 'RODOVIÁRIO').length;
+  const demurrageWatchCount = processes.filter(
+    (p) => (p.c20 + p.c40 > 0 && p.status !== 'ENTREGUE') || p.demurrage > 0
+  ).length;
+
+  const modalChartData: DirectorChartMetrics['containerAndModal']['modalChartData'] = [
+    { label: "20' CNTR", count: total20, teus: total20, color: '#06b6d4' },
+    { label: "40' CNTR", count: total40, teus: total40 * 2, color: '#6366f1' },
+    { label: 'Aéreo', count: airCount, teus: 0, color: '#f59e0b' },
+  ];
+  if (roadCount > 0) {
+    modalChartData.push({ label: 'Rodoviário', count: roadCount, teus: 0, color: '#10b981' });
+  }
+
+  const stageMeta: Array<{
+    stage: ShipmentOperationalStatus;
+    label: string;
+    color: string;
+  }> = [
+    { stage: 'AG. PRONTIDAO DA CARGA', label: 'Ag. Prontidão', color: '#64748b' },
+    { stage: 'EM TRÂNSITO', label: 'Em Trânsito', color: '#06b6d4' },
+    { stage: 'AG. DESEMBARAÇO', label: 'Ag. Desembaraço', color: '#f59e0b' },
+    { stage: 'PARADO AG. DRAWBACK', label: 'Parado Drawback', color: '#f43f5e' },
+    { stage: 'ENTREGUE', label: 'Entregue MFX', color: '#10b981' },
+  ];
+
+  const processPipeline = stageMeta.map((meta) => {
+    const matched = processes.filter((p) => p.status === meta.stage);
+    const count = matched.length;
+    const pct = totalProcesses > 0 ? Math.round((count / totalProcesses) * 1000) / 10 : 0;
+    const fobBrl = matched.reduce((sum, p) => sum + p.brlFob, 0);
+    return { ...meta, count, pct, fobBrl };
+  });
+
+  const transitSamples: number[] = [];
+  const clearanceSamples: number[] = [];
+  const storageSamples: number[] = [];
+  const leadTimeSamples: number[] = [];
+
+  const perProcess = processes.slice(0, 12).map((p) => {
+    const firstItem = p.items[0];
+    const presencaIso = firstItem?.FUP_DATA_PRESENCA_CARGA || '';
+    const desIso = firstItem?.DATA_DESEMBARACO || '';
+    const clearanceDays =
+      presencaIso && desIso ? Math.max(1, daysBetween(presencaIso, desIso)) : 0;
+
+    if (p.transitTime > 0) transitSamples.push(p.transitTime);
+    if (clearanceDays > 0) clearanceSamples.push(clearanceDays);
+    if (p.days > 0) storageSamples.push(p.days);
+    if (p.leadTime > 0) leadTimeSamples.push(p.leadTime);
+
+    const shortRef = p.ref.replace(/^MFX-0*/i, 'MFX-');
+    return {
+      processRef: p.ref,
+      shortRef,
+      exporterShort: p.exporter.split(' ')[0] || '-',
+      transitDays: p.transitTime,
+      clearanceDays,
+      storageDays: p.days,
+      leadTimeDays: p.leadTime,
+      canal: p.canal,
+    };
+  });
+
+  // Also include remaining processes (> 12) in department averages
+  for (let i = 12; i < processes.length; i++) {
+    const p = processes[i];
+    const firstItem = p.items[0];
+    const presencaIso = firstItem?.FUP_DATA_PRESENCA_CARGA || '';
+    const desIso = firstItem?.DATA_DESEMBARACO || '';
+    const clearanceDays =
+      presencaIso && desIso ? Math.max(1, daysBetween(presencaIso, desIso)) : 0;
+    if (p.transitTime > 0) transitSamples.push(p.transitTime);
+    if (clearanceDays > 0) clearanceSamples.push(clearanceDays);
+    if (p.days > 0) storageSamples.push(p.days);
+    if (p.leadTime > 0) leadTimeSamples.push(p.leadTime);
+  }
+
+  const avg = (arr: number[]) =>
+    arr.length > 0 ? Math.round((arr.reduce((s, v) => s + v, 0) / arr.length) * 10) / 10 : 0;
+
+  return {
+    totalProcesses,
+    registeredDiCount,
+    channelBreakdown,
+    containerAndModal: {
+      total20,
+      total40,
+      totalContainers,
+      totalTeus,
+      seaCount,
+      airCount,
+      roadCount,
+      demurrageWatchCount,
+      modalChartData,
+    },
+    processPipeline,
+    timingMetrics: {
+      avgTransitDays: avg(transitSamples),
+      avgClearanceDays: avg(clearanceSamples),
+      avgStorageDays: avg(storageSamples),
+      avgLeadTimeDays: avg(leadTimeSamples),
+      perProcess,
+    },
+  };
+}
+

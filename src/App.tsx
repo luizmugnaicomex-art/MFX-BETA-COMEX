@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
+  Calendar,
   ChevronLeft,
   ChevronRight,
   Database,
@@ -17,13 +18,18 @@ import {
 } from 'lucide-react';
 import type {
   ComexFilters,
+  DateFilterBasis,
   FupItemRow,
   ShipmentOverrides,
   SwotData,
 } from './types/comex';
 import { INITIAL_MFX_SEED_DATA } from './data/mfxSeedData';
 import { parseFupWorkbook } from './utils/sapParser';
-import { buildShipmentProcesses, filterFupItems } from './utils/comexEngine';
+import {
+  buildShipmentProcesses,
+  extractAvailableYears,
+  filterFupItems,
+} from './utils/comexEngine';
 import { ExecutivePanel } from './components/ExecutivePanel';
 import { ShipmentsWorkbench } from './components/ShipmentsWorkbench';
 import { OrderStatusMatrix } from './components/OrderStatusMatrix';
@@ -53,6 +59,21 @@ function readStorage<T>(key: string, fallback: T): T {
   }
 }
 
+const MONTH_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: '01', label: '01 · Jan' },
+  { value: '02', label: '02 · Feb' },
+  { value: '03', label: '03 · Mar' },
+  { value: '04', label: '04 · Apr' },
+  { value: '05', label: '05 · May' },
+  { value: '06', label: '06 · Jun' },
+  { value: '07', label: '07 · Jul' },
+  { value: '08', label: '08 · Aug' },
+  { value: '09', label: '09 · Sep' },
+  { value: '10', label: '10 · Oct' },
+  { value: '11', label: '11 · Nov' },
+  { value: '12', label: '12 · Dec' },
+];
+
 const DEFAULT_FILTERS: ComexFilters = {
   search: '',
   pep: '',
@@ -61,6 +82,9 @@ const DEFAULT_FILTERS: ComexFilters = {
   ncm: '',
   buyer: '',
   status: '',
+  year: '',
+  month: '',
+  dateField: 'OPS',
   hideDeleted: true,
 };
 
@@ -121,12 +145,25 @@ export default function App() {
     const ncms = new Set<string>();
     const buyers = new Set<string>();
     const statuses = new Set<string>();
+    let hasMissingNcm = false;
 
     for (const item of rawItems) {
       if (item.DESCRICAO_ELEMENTO_PEP) peps.add(item.DESCRICAO_ELEMENTO_PEP);
-      if (item.FUP_ATO_CONCESSORIO) acs.add(item.FUP_ATO_CONCESSORIO);
+      if (item.FUP_ATO_CONCESSORIO) {
+        for (const ac of item.FUP_ATO_CONCESSORIO.split(',')) {
+          const clean = ac.trim();
+          if (clean) acs.add(clean);
+        }
+      }
       if (item.NOME_FORNECEDOR) suppliers.add(item.NOME_FORNECEDOR);
-      if (item.FUP_NCMS) ncms.add(item.FUP_NCMS);
+      if (item.FUP_NCMS) {
+        for (const ncm of item.FUP_NCMS.split(',')) {
+          const clean = ncm.trim();
+          if (clean) ncms.add(clean);
+        }
+      } else {
+        hasMissingNcm = true;
+      }
       if (item.NOME_COMPRADOR) buyers.add(item.NOME_COMPRADOR);
       if (item.STATUS_PRAZO_ENTREGA) statuses.add(item.STATUS_PRAZO_ENTREGA);
     }
@@ -137,8 +174,14 @@ export default function App() {
       ncms: Array.from(ncms).sort(),
       buyers: Array.from(buyers).sort(),
       statuses: Array.from(statuses).sort(),
+      hasMissingNcm,
     };
   }, [rawItems]);
+
+  const availableYears = useMemo(
+    () => extractAvailableYears(rawItems, filters.dateField),
+    [rawItems, filters.dateField]
+  );
 
   const filteredItems = useMemo(() => filterFupItems(rawItems, filters), [rawItems, filters]);
 
@@ -165,6 +208,8 @@ export default function App() {
           filters.ncm ||
           filters.buyer ||
           filters.status ||
+          filters.year ||
+          filters.month ||
           !filters.hideDeleted
       ),
     [filters]
@@ -181,6 +226,8 @@ export default function App() {
         return;
       }
       setRawItems(items);
+      setFilters(DEFAULT_FILTERS);
+      setSelectedProcessRef(null);
       setDataSourceLabel(`${file.name} (${sheetName})`);
       setUploadBanner(`Loaded ${items.length} SAP FUP rows from "${file.name}" (sheet: ${sheetName}).`);
     } catch (err) {
@@ -378,8 +425,8 @@ export default function App() {
           </div>
 
           {/* Global Multi-Filters & Deleted SAP Toggle */}
-          <div className="mt-2.5 pt-2.5 border-t border-slate-100 dark:border-slate-800/80 flex flex-wrap xl:flex-nowrap items-center gap-1.5">
-            <div className="relative flex-1 min-w-[160px]">
+          <div className="mt-2.5 pt-2.5 border-t border-slate-100 dark:border-slate-800/80 flex flex-wrap items-center gap-1.5">
+            <div className="relative flex-1 min-w-[130px]">
               <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="text"
@@ -387,7 +434,7 @@ export default function App() {
                 placeholder="Search PO, MFX, PEP, AC, NCM..."
                 value={filters.search}
                 onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
-                className="w-full pl-8 pr-2.5 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white placeholder:text-slate-400"
+                className="w-full pl-8 pr-2 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white placeholder:text-slate-400"
               />
             </div>
 
@@ -395,7 +442,7 @@ export default function App() {
               aria-label="Filter by Project PEP"
               value={filters.pep}
               onChange={(e) => setFilters((f) => ({ ...f, pep: e.target.value }))}
-              className="px-2 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white max-w-[138px]"
+              className="px-2 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white max-w-[120px]"
             >
               <option value="">All Projects</option>
               {filterOptions.peps.map((p) => (
@@ -409,7 +456,7 @@ export default function App() {
               aria-label="Filter by Ato Concessório"
               value={filters.atoConcessorio}
               onChange={(e) => setFilters((f) => ({ ...f, atoConcessorio: e.target.value }))}
-              className="px-2 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white max-w-[125px]"
+              className="px-2 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white max-w-[105px]"
             >
               <option value="">All ACs</option>
               <option value="__MISSING__">Missing AC</option>
@@ -424,7 +471,7 @@ export default function App() {
               aria-label="Filter by Supplier"
               value={filters.supplier}
               onChange={(e) => setFilters((f) => ({ ...f, supplier: e.target.value }))}
-              className="px-2 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white max-w-[138px]"
+              className="px-2 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white max-w-[120px]"
             >
               <option value="">All Suppliers</option>
               {filterOptions.suppliers.map((s) => (
@@ -438,9 +485,10 @@ export default function App() {
               aria-label="Filter by NCM"
               value={filters.ncm}
               onChange={(e) => setFilters((f) => ({ ...f, ncm: e.target.value }))}
-              className="px-2 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white max-w-[105px]"
+              className="px-2 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white max-w-[98px]"
             >
               <option value="">All NCMs</option>
+              {filterOptions.hasMissingNcm && <option value="__MISSING__">SEM NCM</option>}
               {filterOptions.ncms.map((n) => (
                 <option key={n} value={n}>
                   {n}
@@ -452,7 +500,7 @@ export default function App() {
               aria-label="Filter by Buyer"
               value={filters.buyer}
               onChange={(e) => setFilters((f) => ({ ...f, buyer: e.target.value }))}
-              className="px-2 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white max-w-[110px]"
+              className="px-2 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white max-w-[98px]"
             >
               <option value="">All Buyers</option>
               {filterOptions.buyers.map((b) => (
@@ -465,8 +513,15 @@ export default function App() {
             <select
               aria-label="Filter by Delivery Status"
               value={filters.status}
-              onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))}
-              className="px-2 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white max-w-[115px]"
+              onChange={(e) => {
+                const nextStatus = e.target.value;
+                setFilters((f) => ({
+                  ...f,
+                  status: nextStatus,
+                  hideDeleted: nextStatus === 'ITEM EXCLUIDO' ? false : f.hideDeleted,
+                }));
+              }}
+              className="px-2 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white max-w-[104px]"
             >
               <option value="">All Status</option>
               {filterOptions.statuses.map((st) => (
@@ -476,11 +531,71 @@ export default function App() {
               ))}
             </select>
 
-            <label className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-xs text-slate-700 dark:text-slate-200 cursor-pointer whitespace-nowrap shrink-0">
+            <div className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 shrink-0">
+              <Calendar className="w-3.5 h-3.5 text-cyan-600 dark:text-cyan-400 shrink-0" />
+              <select
+                aria-label="Date field basis"
+                title="Ops Date filters shipments by ETD/ETA/DI and unshipped POs by PO Date"
+                value={filters.dateField}
+                onChange={(e) =>
+                  setFilters((f) => ({ ...f, dateField: e.target.value as DateFilterBasis }))
+                }
+                className="py-1 pr-1 text-xs bg-transparent text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer"
+              >
+                <option value="OPS" className="bg-white dark:bg-slate-900">Ops Date</option>
+                <option value="PO" className="bg-white dark:bg-slate-900">PO Date</option>
+                <option value="ETD" className="bg-white dark:bg-slate-900">ETD</option>
+                <option value="ETA" className="bg-white dark:bg-slate-900">ETA</option>
+                <option value="DI" className="bg-white dark:bg-slate-900">DI Date</option>
+                <option value="DELIVERY" className="bg-white dark:bg-slate-900">Delivery</option>
+              </select>
+              <span className="h-3.5 w-px bg-slate-300 dark:bg-slate-700" aria-hidden="true" />
+              <select
+                aria-label="Filter by Year"
+                value={filters.year}
+                onChange={(e) => setFilters((f) => ({ ...f, year: e.target.value }))}
+                className="py-1 px-1 text-xs font-mono tabular-nums bg-transparent text-slate-900 dark:text-white focus:outline-none cursor-pointer"
+              >
+                <option value="" className="bg-white dark:bg-slate-900">All Years</option>
+                {filters.year && !availableYears.includes(filters.year) && (
+                  <option value={filters.year} className="bg-white dark:bg-slate-900">
+                    {filters.year}
+                  </option>
+                )}
+                {availableYears.map((y) => (
+                  <option key={y} value={y} className="bg-white dark:bg-slate-900">
+                    {y}
+                  </option>
+                ))}
+              </select>
+              <span className="h-3.5 w-px bg-slate-300 dark:bg-slate-700" aria-hidden="true" />
+              <select
+                aria-label="Filter by Month"
+                value={filters.month}
+                onChange={(e) => setFilters((f) => ({ ...f, month: e.target.value }))}
+                className="py-1 pl-1 text-xs bg-transparent text-slate-900 dark:text-white focus:outline-none cursor-pointer"
+              >
+                <option value="" className="bg-white dark:bg-slate-900">All Months</option>
+                {MONTH_OPTIONS.map((m) => (
+                  <option key={m.value} value={m.value} className="bg-white dark:bg-slate-900">
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <label className="inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-xs text-slate-700 dark:text-slate-200 cursor-pointer whitespace-nowrap shrink-0">
               <input
                 type="checkbox"
                 checked={filters.hideDeleted}
-                onChange={(e) => setFilters((f) => ({ ...f, hideDeleted: e.target.checked }))}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setFilters((f) => ({
+                    ...f,
+                    hideDeleted: checked,
+                    status: checked && f.status === 'ITEM EXCLUIDO' ? '' : f.status,
+                  }));
+                }}
                 className="accent-cyan-600 rounded"
               />
               <span>Hide Deleted (LOEKZ=&apos;L&apos;)</span>
@@ -535,11 +650,17 @@ export default function App() {
             <ExecutivePanel
               items={filteredItems}
               processes={processes}
+              activeNcmFilter={filters.ncm}
+              hasActiveFilters={hasActiveFilters}
+              onResetFilters={() => setFilters(DEFAULT_FILTERS)}
               onSelectProcess={(ref) => {
                 setSelectedProcessRef(ref);
                 setActiveTab('shipments');
               }}
-              onFilterByNcm={(ncm) => setFilters((f) => ({ ...f, ncm: f.ncm === ncm ? '' : ncm }))}
+              onFilterByNcm={(ncm) => {
+                const nextVal = ncm === 'SEM NCM' ? '__MISSING__' : ncm;
+                setFilters((f) => ({ ...f, ncm: f.ncm === nextVal ? '' : nextVal }));
+              }}
             />
           )}
 
@@ -582,6 +703,8 @@ export default function App() {
               onUploadFile={handleFileUpload}
               onResetToSeed={() => {
                 setRawItems(INITIAL_MFX_SEED_DATA);
+                setFilters(DEFAULT_FILTERS);
+                setSelectedProcessRef(null);
                 setDataSourceLabel('MFX Baseline Dataset');
                 setUploadBanner('Restored MFX baseline dataset.');
               }}

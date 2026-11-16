@@ -19,7 +19,9 @@ export const SapFupExplorer: React.FC<SapFupExplorerProps> = ({
   onResetToSeed,
 }) => {
   const [isDragging, setIsDragging] = useState(false);
-  const [selectedItem, setSelectedItem] = useState<FupItemRow | null>(items[0] || null);
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(items[0]?.id || null);
+
+  const selectedItem = items.find((i) => i.id === selectedItemId) || items[0] || null;
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -125,7 +127,7 @@ export const SapFupExplorer: React.FC<SapFupExplorerProps> = ({
                 {items.map((row) => (
                   <tr
                     key={row.id}
-                    onClick={() => setSelectedItem(row)}
+                    onClick={() => setSelectedItemId(row.id)}
                     className={`cursor-pointer transition-colors ${
                       selectedItem?.id === row.id
                         ? 'bg-cyan-500/10 dark:bg-cyan-500/15'

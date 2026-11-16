@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Download, Eye, EyeOff, X, Save } from 'lucide-react';
 import type {
   ShipmentOperationalStatus,
@@ -68,21 +68,34 @@ export const ShipmentsWorkbench: React.FC<ShipmentsWorkbenchProps> = ({
 
   const [draft, setDraft] = useState<ShipmentOverrides>({});
 
-  const openProcessDrawer = (proc: ShipmentProcessRow) => {
-    const existing = overrides[proc.ref] || {};
+  useEffect(() => {
+    if (!activeProcess) return;
+    const existing = overrides[activeProcess.ref] || {};
     setDraft({
-      resp: existing.resp ?? proc.resp,
-      pi: existing.pi ?? proc.pi,
-      brokerFee: existing.brokerFee ?? proc.brokerFee,
-      truckingCost: existing.truckingCost ?? proc.trucking,
-      liFee: existing.liFee ?? proc.liFee,
-      demurrageCost: existing.demurrageCost ?? proc.demurrageTotal,
-      devCtnrDate: existing.devCtnrDate ?? (proc.devCtnr === '-' ? '' : proc.devCtnr),
-      status: existing.status ?? proc.status,
-      trackingNum: existing.trackingNum ?? (proc.trackingNum === '-' ? '' : proc.trackingNum),
-      numerarioDate: existing.numerarioDate ?? (proc.numerario === '-' ? '' : proc.numerario),
-      valorAdt: existing.valorAdt ?? proc.valorAdt,
+      resp: existing.resp ?? activeProcess.resp,
+      pi: existing.pi ?? activeProcess.pi,
+      brokerFee: existing.brokerFee ?? activeProcess.brokerFee,
+      truckingCost: existing.truckingCost ?? activeProcess.trucking,
+      liFee: existing.liFee ?? activeProcess.liFee,
+      demurrageCost: existing.demurrageCost ?? activeProcess.demurrageTotal,
+      devCtnrDate: existing.devCtnrDate ?? (activeProcess.devCtnr === '-' ? '' : activeProcess.devCtnr),
+      status: existing.status ?? activeProcess.status,
+      trackingNum: existing.trackingNum ?? (activeProcess.trackingNum === '-' ? '' : activeProcess.trackingNum),
+      numerarioDate: existing.numerarioDate ?? (activeProcess.numerario === '-' ? '' : activeProcess.numerario),
+      valorAdt: existing.valorAdt ?? activeProcess.valorAdt,
     });
+  }, [activeProcess, overrides]);
+
+  useEffect(() => {
+    if (!activeProcess) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onSelectProcessRef(null);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [activeProcess, onSelectProcessRef]);
+
+  const openProcessDrawer = (proc: ShipmentProcessRow) => {
     onSelectProcessRef(proc.ref);
   };
 
@@ -460,6 +473,9 @@ export const ShipmentsWorkbench: React.FC<ShipmentsWorkbenchProps> = ({
           role="dialog"
           aria-modal="true"
           aria-label={`Process details for ${activeProcess.ref}`}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) onSelectProcessRef(null);
+          }}
         >
           <div className="w-full max-w-2xl bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 h-full overflow-y-auto p-6 space-y-6">
             <div className="flex items-start justify-between border-b border-slate-200 dark:border-slate-800 pb-4">

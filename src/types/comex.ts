@@ -404,6 +404,8 @@ export interface SwotData {
   threats: string[];
 }
 
+export type DateFilterBasis = 'OPS' | 'PO' | 'ETD' | 'ETA' | 'DI' | 'DELIVERY';
+
 export interface ComexFilters {
   search: string;
   pep: string;
@@ -412,5 +414,8 @@ export interface ComexFilters {
   ncm: string;
   buyer: string;
   status: string;
+  year: string;
+  month: string;
+  dateField: DateFilterBasis;
   hideDeleted: boolean;
 }
