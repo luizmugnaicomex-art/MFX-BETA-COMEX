@@ -9,11 +9,15 @@ import {
 } from './sapParser';
 import {
   buildCashFlowData,
+  buildMaterialAnalytics,
+  buildNumerarioAnalysis,
   buildOrderStatusMatrix,
   buildPartnerScorecards,
   buildShipmentProcesses,
+  calculateBrazilianImportTaxes,
   computeDirectorChartMetrics,
   computeExecutiveKpis,
+  detectSimilarMaterials,
   extractAvailableYears,
   filterFupItems,
   parseContainerCounts,
@@ -291,6 +295,362 @@ test('extractAvailableYears, resolveItemFilterDate, and filterFupItems filter PO
   assert.equal(opsOctAllYears.length, 2);
 });
 
+test('buildMaterialAnalytics computes PQR/ABC classes, Most Bought/Used/Expensive highlights, and Kraljic Matrix quadrants', () => {
+  const active = filterFupItems(INITIAL_MFX_SEED_DATA, BASE_FILTERS);
+  const analytics = buildMaterialAnalytics(active);
 
+  assert.equal(analytics.totalSkus, 7);
+  assert.ok(analytics.totalSpendBrl > 2000000);
+  assert.ok(analytics.mostBought);
+  assert.ok(analytics.mostUsed);
+  assert.ok(analytics.mostExpensive);
+  assert.equal(analytics.mostBought.materialCode, '20008812'); // 2,400 KG aramid yarn
+  assert.equal(analytics.mostUsed.materialCode, '30002890'); // 800 M received / Plant 0003
+  assert.equal(analytics.mostExpensive.materialCode, '30004100'); // R$ 547.200 Inconel pipe
 
+  // Every material has P/Q/R, A/B/C, and one of the 4 Kraljic quadrants
+  assert.ok(analytics.materials.every((m) => ['P', 'Q', 'R'].includes(m.pqrClass)));
+  assert.ok(analytics.materials.every((m) => ['A', 'B', 'C'].includes(m.abcClass)));
+  assert.ok(analytics.quadrantSummary.STRATEGIC.count >= 1);
+  assert.ok(analytics.quadrantSummary.LEVERAGE.count >= 1);
+  assert.ok(analytics.quadrantSummary.NON_CRITICAL.count >= 1);
 
+  // Manual Kraljic override reclassifies the item cleanly
+  const overridden = buildMaterialAnalytics(active, {
+    '30004100': { quadrant: 'LEVERAGE', note: 'Dual-source contract signed' },
+  });
+  const inconel = overridden.materials.find((m) => m.materialCode === '30004100');
+  assert.ok(inconel);
+  assert.equal(inconel.kraljicQuadrant, 'LEVERAGE');
+  assert.equal(inconel.computedQuadrant, 'STRATEGIC');
+  assert.equal(inconel.overrideNote, 'Dual-source contract signed');
+
+  // Empty input produces clean zeroed analytics
+  const empty = buildMaterialAnalytics([]);
+  assert.equal(empty.totalSkus, 0);
+  assert.equal(empty.mostBought, null);
+});
+
+test('detectSimilarMaterials clusters same/similar items with different SAP codes and tracks spec diffs & decisions', () => {
+  const rows = [
+    // Exact duplicate PT description with different SAP material codes & unit price difference
+    normalizeFupRow(
+      {
+        PEDIDO: '4500009001',
+        ITEM_PEDIDO: '10',
+        MATERIAL: '000000000030009001',
+        DESCRICAO_MATERIAL: 'VALVULA ESFERA ACO INOX 316L 1/2 POL',
+        DESCRICAO_MATERIAL_INGLES: 'BALL VALVE STAINLESS STEEL 316L 1/2 INCH',
+        FUP_NCMS: '84818099',
+        UNIDADE: 'UND',
+        MOEDA: 'USD',
+        PRECO_UNITARIO: 100,
+        VALOR_LIQUIDO: 1000,
+        QUANTIDADE_PEDIDA: 10,
+        NOME_FORNECEDOR: 'WALTHER PRAZISION',
+      },
+      0
+    ),
+    normalizeFupRow(
+      {
+        PEDIDO: '4500009002',
+        ITEM_PEDIDO: '10',
+        MATERIAL: '000000000030009002',
+        DESCRICAO_MATERIAL: 'VÁLVULA DE ESFERA INOXIDAVEL 316L 1/2"',
+        DESCRICAO_MATERIAL_INGLES: 'BALL VALVE SS 316L 1/2 IN',
+        FUP_NCMS: '84818099',
+        UNIDADE: 'UND',
+        MOEDA: 'USD',
+        PRECO_UNITARIO: 150,
+        VALOR_LIQUIDO: 1500,
+        QUANTIDADE_PEDIDA: 10,
+        NOME_FORNECEDOR: 'WALTHER PRAZISION',
+      },
+      1
+    ),
+    // Third code with identical PT text -> joins the same 3-code cluster transitively
+    normalizeFupRow(
+      {
+        PEDIDO: '4500009003',
+        ITEM_PEDIDO: '10',
+        MATERIAL: '000000000030009003',
+        DESCRICAO_MATERIAL: 'VALVULA ESFERA ACO INOX 316L 1/2 POL',
+        DESCRICAO_MATERIAL_INGLES: 'BALL VALVE 316L 1/2 INCH',
+        FUP_NCMS: '84818099',
+        UNIDADE: 'UND',
+        MOEDA: 'USD',
+        PRECO_UNITARIO: 120,
+        VALOR_LIQUIDO: 1200,
+        QUANTIDADE_PEDIDA: 10,
+        NOME_FORNECEDOR: 'PARKER HANNIFIN CORP',
+      },
+      2
+    ),
+    // Different rating variant (10K PSI vs 15K PSI) -> flags spec difference
+    normalizeFupRow(
+      {
+        PEDIDO: '4500009004',
+        ITEM_PEDIDO: '10',
+        MATERIAL: '000000000030009100',
+        DESCRICAO_MATERIAL: 'MANGUEIRA TERMOPLASTICA ALTA PRESSAO 10K PSI',
+        FUP_NCMS: '39173290',
+        UNIDADE: 'M',
+        MOEDA: 'USD',
+        PRECO_UNITARIO: 20,
+        VALOR_LIQUIDO: 2000,
+        QUANTIDADE_PEDIDA: 100,
+      },
+      3
+    ),
+    normalizeFupRow(
+      {
+        PEDIDO: '4500009005',
+        ITEM_PEDIDO: '10',
+        MATERIAL: '000000000030009101',
+        DESCRICAO_MATERIAL: 'MANGUEIRA TERMOPLASTICA ALTA PRESSAO 15K PSI',
+        FUP_NCMS: '39173290',
+        UNIDADE: 'M',
+        MOEDA: 'USD',
+        PRECO_UNITARIO: 25,
+        VALOR_LIQUIDO: 2500,
+        QUANTIDADE_PEDIDA: 100,
+      },
+      4
+    ),
+    // Completely unrelated item
+    normalizeFupRow(
+      {
+        PEDIDO: '4500009006',
+        ITEM_PEDIDO: '10',
+        MATERIAL: '000000000010009999',
+        DESCRICAO_MATERIAL: 'TRANFORMADOR TRIFASICO ALTA TENSAO 13.8KV',
+        FUP_NCMS: '85042200',
+        UNIDADE: 'UND',
+        MOEDA: 'USD',
+        PRECO_UNITARIO: 5000,
+        VALOR_LIQUIDO: 5000,
+        QUANTIDADE_PEDIDA: 1,
+      },
+      5
+    ),
+  ];
+
+  const analytics = buildMaterialAnalytics(rows);
+  const res = detectSimilarMaterials(analytics.materials, {}, 55);
+
+  assert.equal(res.totalGroups, 2);
+  assert.equal(res.totalMaterialsInvolved, 5);
+  assert.equal(res.exactDuplicateGroups, 1);
+
+  const valveCluster = res.groups.find((g) => g.materials.some((m) => m.materialCode === '30009001'));
+  assert.ok(valveCluster);
+  assert.equal(valveCluster.materials.length, 3);
+  assert.equal(valveCluster.tier, 'EXACT_DUPLICATE');
+  assert.equal(valveCluster.maxSimilarity, 100);
+  assert.equal(valveCluster.unitPriceSpreadPct, 50); // 100 vs 150 USD -> +50% spread
+
+  const hoseCluster = res.groups.find((g) => g.materials.some((m) => m.materialCode === '30009100'));
+  assert.ok(hoseCluster);
+  assert.equal(hoseCluster.materials.length, 2);
+  assert.ok(hoseCluster.specDifferences.some((d) => d.includes('10k') && d.includes('15k')));
+
+  // Audit decision persistence
+  const withDecision = detectSimilarMaterials(
+    analytics.materials,
+    {
+      [valveCluster.groupId]: {
+        status: 'CONFIRMED_DUPLICATE',
+        primaryMaterialCode: '30009001',
+        note: 'Block 30009002 and 30009003 in SAP MM02',
+      },
+    },
+    55
+  );
+  assert.equal(withDecision.confirmedDuplicateGroups, 1);
+  assert.equal(withDecision.pendingGroups, 1);
+  const updatedValve = withDecision.groups.find((g) => g.groupId === valveCluster.groupId);
+  assert.equal(updatedValve?.auditStatus, 'CONFIRMED_DUPLICATE');
+  assert.equal(updatedValve?.primaryMaterialCode, '30009001');
+});
+
+test('calculateBrazilianImportTaxes and buildNumerarioAnalysis follow uploaded SAP values without guessing taxes and support manual simulation', () => {
+  const tax = calculateBrazilianImportTaxes({
+    valorAduaneiroBrl: 100000,
+    iiRatePct: 12,
+    ipiRatePct: 5,
+    pisRatePct: 2.1,
+    cofinsRatePct: 9.65,
+    icmsRatePct: 18,
+    siscomexBrl: 185,
+  });
+  assert.equal(tax.iiBrl, 12000);
+  assert.equal(tax.ipiBrl, 5600); // 5% of (100000 + 12000)
+  assert.equal(tax.pisBrl, 2100);
+  assert.equal(tax.cofinsBrl, 9650);
+  // ICMS gross-up: (100000+12000+5600+2100+9650+185) / 0.82 * 0.18
+  assert.equal(tax.icmsBrl, 28434.51);
+
+  const active = filterFupItems(INITIAL_MFX_SEED_DATA, BASE_FILTERS);
+  const processes = buildShipmentProcesses(active, {});
+  const res = buildNumerarioAnalysis(active, processes, {}, true);
+
+  assert.equal(res.counts.shipmentRows, 5);
+  assert.equal(res.counts.openPoRows, 2);
+  assert.equal(res.counts.totalRows, 7);
+
+  // MFX-00037/26 has recorded SAP DI taxes
+  const mfx37 = res.rows.find((r) => r.id === 'MFX-00037/26');
+  assert.ok(mfx37);
+  assert.equal(mfx37.sourceType, 'SAP_DI');
+  assert.equal(mfx37.iiBrl, 62808);
+  assert.equal(mfx37.ipiBrl, 27844);
+  assert.equal(mfx37.pisBrl, 10991);
+  assert.equal(mfx37.cofinsBrl, 50508);
+  assert.equal(mfx37.icmsBrl, 118420);
+  assert.equal(mfx37.siscomexBrl, 185);
+  assert.equal(mfx37.totalTaxesBrl, 270756);
+  // Clearance fees use exact SAP Armazenagem + Capatazia (no guessed trucking/broker fees)
+  assert.equal(mfx37.totalClearanceExpensesBrl, 6460);
+
+  // MFX-00002/25 has Drawback Suspensão -> II/IPI/PIS/COFINS/ICMS = 0, Siscomex = 185 from SAP
+  const mfx02 = res.rows.find((r) => r.id === 'MFX-00002/25');
+  assert.ok(mfx02);
+  assert.equal(mfx02.taxRegime, 'DRAWBACK_SUSP');
+  assert.equal(mfx02.sourceType, 'DRAWBACK_SUSPENDED');
+  assert.equal(mfx02.iiBrl, 0);
+  assert.equal(mfx02.siscomexBrl, 185);
+  assert.equal(mfx02.potentialDrawbackSavingsBrl, 0);
+
+  // MFX-00042/26 is Pre-DI Aguardando AC with 0 taxes in Excel -> follows 0 without guessing
+  const mfx42 = res.rows.find((r) => r.id === 'MFX-00042/26');
+  assert.ok(mfx42);
+  assert.equal(mfx42.taxRegime, 'AGUARDANDO_AC');
+  assert.equal(mfx42.sourceType, 'SAP_DI');
+  assert.equal(mfx42.iiBrl, 0);
+  assert.equal(mfx42.ipiBrl, 0);
+  assert.equal(mfx42.pisBrl, 0);
+  assert.equal(mfx42.cofinsBrl, 0);
+  assert.equal(mfx42.icmsBrl, 0);
+  assert.equal(mfx42.siscomexBrl, 0);
+  assert.equal(mfx42.totalTaxesBrl, 0);
+  assert.equal(mfx42.totalClearanceExpensesBrl, 12290); // 11800 armazenagem + 490 capatazia
+
+  // Open POs strictly follow Excel values (0 taxes, 0 guessed freight/insurance/broker)
+  const openPo = res.rows.find((r) => r.kind === 'OPEN_PO');
+  assert.ok(openPo);
+  assert.equal(openPo.sourceType, 'PRE_DI_SAP');
+  assert.equal(openPo.totalTaxesBrl, 0);
+  assert.equal(openPo.totalClearanceExpensesBrl, 0);
+
+  // Explicit manual rate simulation computes simulated taxes & persists finance approvals
+  const simulated = buildNumerarioAnalysis(
+    active,
+    processes,
+    {
+      'MFX-00042/26': {
+        regimeOverride: 'RECOLHIMENTO_INTEGRAL',
+        iiRatePct: 12.6,
+        ipiRatePct: 5,
+        pisRatePct: 2.1,
+        cofinsRatePct: 9.65,
+        icmsRatePct: 18,
+        siscomexBrl: 185,
+        financeStatus: 'APPROVED',
+        financeNote: 'What-if full tax simulation',
+      },
+    },
+    false
+  );
+  const sim42 = simulated.rows.find((r) => r.id === 'MFX-00042/26');
+  assert.ok(sim42);
+  assert.equal(sim42.sourceType, 'SIMULATED');
+  assert.ok(sim42.totalTaxesBrl > 150000);
+  assert.equal(sim42.financeStatus, 'APPROVED');
+  assert.equal(sim42.financeNote, 'What-if full tax simulation');
+});
+
+test('Uploaded FUP Excel with explicit 0 taxes (e.g. MFX-00157/26) never triggers guessed II/PIS/COFINS/ICMS', () => {
+  const row194 = normalizeFupRow(
+    {
+      PEDIDO: '6000000128',
+      ITEM_PEDIDO: '00010',
+      NOME_FORNECEDOR: 'ARROW SWITZERLAND AG',
+      DESCRICAO_MATERIAL: 'FIO ARAMIDA 5402.11.00',
+      FUP_NCMS: '5402.11.00',
+      MOEDA: 'USD',
+      VALOR_LIQUIDO: 1413.0,
+      QUANTIDADE_PEDIDA: 97,
+      QUANTIDADE_PENDENTE: 97,
+      ULTIMO_PROCESSO_IMPORTACAO: 'MFX-00157/26',
+      FUP_QUANTIDADE_DI: 97,
+      FUP_VALOR_ADUANEIRO: 12860.3472,
+      FUP_VALOR_MERCADORIA: 12854.2572,
+      FUP_TOTAL_II_ITEM: 0,
+      FUP_TOTAL_IPI_ITEM: 0,
+      FUP_TOTAL_PIS_ITEM: 0,
+      FUP_TOTAL_COFINS_ITEM: 0,
+      FUP_TOTAL_ICMS_ITEM: 0,
+      FUP_TOTAL_SISCOMEX_ITEM: 5.26,
+      FUP_ARMAZENAGEM_PROCESSO: 15800.0,
+      FUP_CAPATAZIA_PROCESSO: 768.19,
+      FUP_AFRMM_PROCESSO: 0,
+      // Even if JSON fallback contains stale non-zero values, explicit flat 0 must win
+      DETALHES_FISCAIS_JSON: JSON.stringify([{ NCM: '5402.11.00', II: 999, IPI: 888 }]),
+    },
+    0
+  );
+
+  const row204 = normalizeFupRow(
+    {
+      PEDIDO: '6000000128',
+      ITEM_PEDIDO: '00020',
+      NOME_FORNECEDOR: 'ARROW SWITZERLAND AG',
+      DESCRICAO_MATERIAL: 'FIO ARAMIDA ALTA TENACIDADE',
+      FUP_NCMS: '5402.11.00',
+      MOEDA: 'USD',
+      VALOR_LIQUIDO: 192801.24,
+      QUANTIDADE_PEDIDA: 13236.4,
+      QUANTIDADE_PENDENTE: 13236.4,
+      ULTIMO_PROCESSO_IMPORTACAO: 'MFX-00157/26',
+      FUP_QUANTIDADE_DI: 13236.4,
+      FUP_VALOR_ADUANEIRO: 1754893.812,
+      FUP_VALOR_MERCADORIA: 1754062.79,
+      FUP_TOTAL_II_ITEM: 0,
+      FUP_TOTAL_IPI_ITEM: 0,
+      FUP_TOTAL_PIS_ITEM: 0,
+      FUP_TOTAL_COFINS_ITEM: 0,
+      FUP_TOTAL_ICMS_ITEM: 0,
+      FUP_TOTAL_SISCOMEX_ITEM: 717.65,
+      FUP_ARMAZENAGEM_PROCESSO: 15800.0,
+      FUP_CAPATAZIA_PROCESSO: 768.19,
+      FUP_AFRMM_PROCESSO: 0,
+    },
+    1
+  );
+
+  assert.equal(row194.FUP_TOTAL_II_ITEM, 0);
+  assert.equal(row194.FUP_TOTAL_IPI_ITEM, 0);
+  assert.equal(row194.hasExplicitSapTaxes, true);
+
+  const processes = buildShipmentProcesses([row194, row204], {});
+  const analysis = buildNumerarioAnalysis([row194, row204], processes, {}, true);
+  const mfx157 = analysis.rows.find((r) => r.id === 'MFX-00157/26');
+
+  assert.ok(mfx157);
+  assert.equal(mfx157.sourceType, 'SAP_DI');
+  assert.equal(mfx157.valorAduaneiroBrl, 1767754.16);
+  assert.equal(mfx157.iiBrl, 0);
+  assert.equal(mfx157.ipiBrl, 0);
+  assert.equal(mfx157.pisBrl, 0);
+  assert.equal(mfx157.cofinsBrl, 0);
+  assert.equal(mfx157.icmsBrl, 0);
+  assert.equal(mfx157.iiRatePct, 0);
+  assert.equal(mfx157.pisRatePct, 0);
+  assert.equal(mfx157.cofinsRatePct, 0);
+  assert.equal(mfx157.icmsRatePct, 0);
+  assert.equal(mfx157.siscomexBrl, 722.91);
+  assert.equal(mfx157.afrmmBrl, 0);
+  assert.equal(mfx157.totalTaxesBrl, 722.91);
+  assert.equal(mfx157.totalClearanceExpensesBrl, 16568.19);
+  assert.equal(mfx157.totalNumerarioBrl, 17291.1);
+});

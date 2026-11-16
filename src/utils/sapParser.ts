@@ -183,19 +183,29 @@ export function formatNumber(value: number, decimals = 2): string {
   }).format(safeVal);
 }
 
-function pick(row: Record<string, unknown>, ...keys: string[]): unknown {
+function pickDefined(row: Record<string, unknown>, ...keys: string[]): unknown {
   for (const key of keys) {
     if (key in row && row[key] !== undefined && row[key] !== null && row[key] !== '') {
       return row[key];
     }
-    const lower = key.toLowerCase();
+    const lower = key.trim().toLowerCase();
     for (const rKey of Object.keys(row)) {
-      if (rKey.toLowerCase() === lower && row[rKey] !== undefined && row[rKey] !== null && row[rKey] !== '') {
+      if (
+        rKey.trim().toLowerCase() === lower &&
+        row[rKey] !== undefined &&
+        row[rKey] !== null &&
+        row[rKey] !== ''
+      ) {
         return row[rKey];
       }
     }
   }
-  return '';
+  return undefined;
+}
+
+function pick(row: Record<string, unknown>, ...keys: string[]): unknown {
+  const val = pickDefined(row, ...keys);
+  return val === undefined ? '' : val;
 }
 
 function normalizeChannel(val: unknown): ParametrizationChannel {
@@ -291,6 +301,29 @@ export function normalizeFupRow(raw: Record<string, unknown>, index: number): Fu
       ''
   ).trim();
 
+  const sumFiscalJson = (getter: (f: FiscalDetailJson) => unknown): number => {
+    if (!Array.isArray(detalhesFiscais) || detalhesFiscais.length === 0) return 0;
+    return detalhesFiscais.reduce((sum, entry) => sum + parseNumber(getter(entry)), 0);
+  };
+
+  const rawVa = pickDefined(raw, 'FUP_VALOR_ADUANEIRO');
+  const rawIi = pickDefined(raw, 'FUP_TOTAL_II_ITEM');
+  const rawIpi = pickDefined(raw, 'FUP_TOTAL_IPI_ITEM');
+  const rawPis = pickDefined(raw, 'FUP_TOTAL_PIS_ITEM');
+  const rawCofins = pickDefined(raw, 'FUP_TOTAL_COFINS_ITEM');
+  const rawIcms = pickDefined(raw, 'FUP_TOTAL_ICMS_ITEM');
+  const rawSiscomex = pickDefined(raw, 'FUP_TOTAL_SISCOMEX_ITEM');
+  const rawFreteFiscal = pickDefined(raw, 'FUP_TOTAL_FRETE_FISCAL_ITEM');
+  const rawSeguroFiscal = pickDefined(raw, 'FUP_TOTAL_SEGURO_FISCAL_ITEM');
+
+  const hasExplicitSapTaxes =
+    rawIi !== undefined ||
+    rawIpi !== undefined ||
+    rawPis !== undefined ||
+    rawCofins !== undefined ||
+    rawIcms !== undefined ||
+    (Array.isArray(detalhesFiscais) && detalhesFiscais.length > 0);
+
   return {
     id: `${pedido || 'ROW'}-${itemPedido}-${index}`,
     PEDIDO: pedido,
@@ -346,22 +379,32 @@ export function normalizeFupRow(raw: Record<string, unknown>, index: number): Fu
     DATA_DESEMBARACO: parseExcelDate(pick(raw, 'DATA_DESEMBARACO')),
     DATA_ENTREGA_MFX: parseExcelDate(pick(raw, 'DATA_ENTREGA_MFX')),
 
-    FUP_VALOR_ADUANEIRO: parseNumber(pick(raw, 'FUP_VALOR_ADUANEIRO') || firstFiscal.VALOR_ADUANEIRO),
+    FUP_VALOR_ADUANEIRO:
+      rawVa !== undefined ? parseNumber(rawVa) : sumFiscalJson((f) => f.VALOR_ADUANEIRO),
     FUP_VALOR_MERCADORIA: parseNumber(pick(raw, 'FUP_VALOR_MERCADORIA')),
     FUP_VALOR_FOB_REAIS_PROCESSO: parseNumber(pick(raw, 'FUP_VALOR_FOB_REAIS_PROCESSO')),
     FUP_TAXA_DOLAR_PROCESSO: parseNumber(pick(raw, 'FUP_TAXA_DOLAR_PROCESSO')),
     FUP_TAXA_EURO_PROCESSO: parseNumber(pick(raw, 'FUP_TAXA_EURO_PROCESSO')),
-    FUP_TOTAL_II_ITEM: parseNumber(pick(raw, 'FUP_TOTAL_II_ITEM') || firstFiscal.II),
-    FUP_TOTAL_IPI_ITEM: parseNumber(pick(raw, 'FUP_TOTAL_IPI_ITEM') || firstFiscal.IPI),
-    FUP_TOTAL_PIS_ITEM: parseNumber(pick(raw, 'FUP_TOTAL_PIS_ITEM') || firstFiscal.PIS),
-    FUP_TOTAL_COFINS_ITEM: parseNumber(pick(raw, 'FUP_TOTAL_COFINS_ITEM') || firstFiscal.COFINS),
-    FUP_TOTAL_ICMS_ITEM: parseNumber(pick(raw, 'FUP_TOTAL_ICMS_ITEM') || firstFiscal.ICMS),
-    FUP_TOTAL_SISCOMEX_ITEM: parseNumber(pick(raw, 'FUP_TOTAL_SISCOMEX_ITEM') || firstFiscal.SISCOMEX),
-    FUP_TOTAL_FRETE_FISCAL_ITEM: parseNumber(pick(raw, 'FUP_TOTAL_FRETE_FISCAL_ITEM') || firstFiscal.FRETE_FISCAL),
-    FUP_TOTAL_SEGURO_FISCAL_ITEM: parseNumber(pick(raw, 'FUP_TOTAL_SEGURO_FISCAL_ITEM') || firstFiscal.SEGURO_FISCAL),
+    FUP_TOTAL_II_ITEM: rawIi !== undefined ? parseNumber(rawIi) : sumFiscalJson((f) => f.II),
+    FUP_TOTAL_IPI_ITEM: rawIpi !== undefined ? parseNumber(rawIpi) : sumFiscalJson((f) => f.IPI),
+    FUP_TOTAL_PIS_ITEM: rawPis !== undefined ? parseNumber(rawPis) : sumFiscalJson((f) => f.PIS),
+    FUP_TOTAL_COFINS_ITEM:
+      rawCofins !== undefined ? parseNumber(rawCofins) : sumFiscalJson((f) => f.COFINS),
+    FUP_TOTAL_ICMS_ITEM: rawIcms !== undefined ? parseNumber(rawIcms) : sumFiscalJson((f) => f.ICMS),
+    FUP_TOTAL_SISCOMEX_ITEM:
+      rawSiscomex !== undefined ? parseNumber(rawSiscomex) : sumFiscalJson((f) => f.SISCOMEX),
+    FUP_TOTAL_FRETE_FISCAL_ITEM:
+      rawFreteFiscal !== undefined
+        ? parseNumber(rawFreteFiscal)
+        : sumFiscalJson((f) => f.FRETE_FISCAL),
+    FUP_TOTAL_SEGURO_FISCAL_ITEM:
+      rawSeguroFiscal !== undefined
+        ? parseNumber(rawSeguroFiscal)
+        : sumFiscalJson((f) => f.SEGURO_FISCAL),
     FUP_ARMAZENAGEM_PROCESSO: parseNumber(pick(raw, 'FUP_ARMAZENAGEM_PROCESSO')),
     FUP_AFRMM_PROCESSO: parseNumber(pick(raw, 'FUP_AFRMM_PROCESSO')),
     FUP_CAPATAZIA_PROCESSO: parseNumber(pick(raw, 'FUP_CAPATAZIA_PROCESSO')),
+    hasExplicitSapTaxes,
     FUP_DOCUMENTOS_MIRO: String(
       pick(raw, 'FUP_DOCUMENTOS_MIRO') || faturas.map((f) => f.MIRO_BELNR).filter(Boolean).join(', ')
     ).trim(),

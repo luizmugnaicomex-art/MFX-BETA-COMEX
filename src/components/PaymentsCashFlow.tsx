@@ -1,18 +1,27 @@
 import React, { useMemo, useState } from 'react';
 import {
-  BarChart,
+  ComposedChart,
   Bar,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
   Legend,
+  LabelList,
 } from 'recharts';
 import { Download, FileText } from 'lucide-react';
 import type { FupItemRow, ShipmentProcessRow } from '../types/comex';
 import { buildCashFlowData } from '../utils/comexEngine';
 import { formatCurrency, formatDateBr } from '../utils/sapParser';
+import {
+  CHART_TOOLTIP_ITEM_STYLE,
+  CHART_TOOLTIP_LABEL_STYLE,
+  CHART_TOOLTIP_STYLE,
+  formatAxisBrl,
+  formatCompactBrl,
+} from '../utils/chartFormatters';
 import { exportCashFlowExcel, exportCashFlowPdf } from '../utils/exportReports';
 import { StatusBadge, getFinancialStatusTone } from './StatusBadge';
 
@@ -48,13 +57,23 @@ export const PaymentsCashFlow: React.FC<PaymentsCashFlowProps> = ({ items, proce
   }, [allEntries, processes]);
 
   const timelineChartData = useMemo(() => {
-    const monthMap = new Map<string, { month: string; paid: number; open: number; overdue: number }>();
+    const monthMap = new Map<
+      string,
+      { month: string; paid: number; open: number; overdue: number; total: number }
+    >();
     for (const entry of allEntries) {
       const monthKey = entry.dueDate ? entry.dueDate.slice(0, 7) : 'TBD';
-      const bucket = monthMap.get(monthKey) || { month: monthKey, paid: 0, open: 0, overdue: 0 };
+      const bucket = monthMap.get(monthKey) || {
+        month: monthKey,
+        paid: 0,
+        open: 0,
+        overdue: 0,
+        total: 0,
+      };
       if (entry.status === 'PAGO') bucket.paid += Math.round(entry.amountBrl);
       else if (entry.status === 'VENCIDA') bucket.overdue += Math.round(entry.amountBrl);
       else bucket.open += Math.round(entry.amountBrl);
+      bucket.total = bucket.paid + bucket.open + bucket.overdue;
       monthMap.set(monthKey, bucket);
     }
     return Array.from(monthMap.values()).sort((a, b) => a.month.localeCompare(b.month));
@@ -136,27 +155,48 @@ export const PaymentsCashFlow: React.FC<PaymentsCashFlowProps> = ({ items, proce
           </div>
         </div>
 
-        <div className="h-[240px]">
+        <div className="h-[255px] text-slate-700 dark:text-slate-200">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={timelineChartData} margin={{ top: 8, right: 12, left: 10, bottom: 4 }}>
+            <ComposedChart data={timelineChartData} margin={{ top: 24, right: 16, left: 6, bottom: 4 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.18)" />
               <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+              <YAxis
+                tickFormatter={formatAxisBrl}
+                tick={{ fontSize: 11, fill: '#94a3b8' }}
+                axisLine={false}
+                tickLine={false}
+              />
               <Tooltip
                 formatter={(val: unknown) => formatCurrency(Number(val) || 0, 'BRL')}
-                contentStyle={{
-                  backgroundColor: '#0f172a',
-                  borderColor: '#1e293b',
-                  borderRadius: '8px',
-                  fontSize: '12px',
-                  color: '#f8fafc',
-                }}
+                contentStyle={CHART_TOOLTIP_STYLE}
+                itemStyle={CHART_TOOLTIP_ITEM_STYLE}
+                labelStyle={CHART_TOOLTIP_LABEL_STYLE}
               />
               <Legend wrapperStyle={{ fontSize: '12px' }} />
               <Bar dataKey="paid" name="Settled (Pago)" stackId="a" fill="#10b981" radius={[0, 0, 0, 0]} />
               <Bar dataKey="open" name="Upcoming / Projected" stackId="a" fill="#f59e0b" radius={[0, 0, 0, 0]} />
               <Bar dataKey="overdue" name="Overdue (Vencida)" stackId="a" fill="#f43f5e" radius={[4, 4, 0, 0]} />
-            </BarChart>
+              <Line
+                type="monotone"
+                dataKey="total"
+                stroke="none"
+                dot={false}
+                activeDot={false}
+                legendType="none"
+                tooltipType="none"
+                isAnimationActive={false}
+              >
+                <LabelList
+                  dataKey="total"
+                  position="top"
+                  offset={8}
+                  fill="currentColor"
+                  fontSize={10.5}
+                  fontWeight={600}
+                  formatter={(val) => formatCompactBrl(Number(val) || 0)}
+                />
+              </Line>
+            </ComposedChart>
           </ResponsiveContainer>
         </div>
       </div>

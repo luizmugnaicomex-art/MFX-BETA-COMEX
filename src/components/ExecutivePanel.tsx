@@ -10,6 +10,7 @@ import {
   Tooltip,
   ResponsiveContainer,
   Cell,
+  LabelList,
 } from 'recharts';
 import {
   AlertTriangle,
@@ -29,6 +30,12 @@ import {
   isDrawbackExpectedNcm,
 } from '../utils/comexEngine';
 import { formatCurrency, formatDateBr, formatNumber } from '../utils/sapParser';
+import {
+  CHART_TOOLTIP_ITEM_STYLE,
+  CHART_TOOLTIP_LABEL_STYLE,
+  CHART_TOOLTIP_STYLE,
+  formatCompactQty,
+} from '../utils/chartFormatters';
 import { StatusBadge, getDeliveryStatusTone } from './StatusBadge';
 
 interface ExecutivePanelProps {
@@ -235,10 +242,32 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
                         nameKey="label"
                         cx="50%"
                         cy="50%"
-                        innerRadius={46}
-                        outerRadius={72}
+                        innerRadius={44}
+                        outerRadius={74}
                         paddingAngle={3}
                         stroke="none"
+                        isAnimationActive={false}
+                        labelLine={false}
+                        label={({ cx, cy, midAngle, innerRadius, outerRadius, value }) => {
+                          if (!value || midAngle === undefined) return null;
+                          const rad = Math.PI / 180;
+                          const r = Number(innerRadius) + (Number(outerRadius) - Number(innerRadius)) * 0.5;
+                          const x = Number(cx) + r * Math.cos(-midAngle * rad);
+                          const y = Number(cy) + r * Math.sin(-midAngle * rad);
+                          return (
+                            <text
+                              x={x}
+                              y={y}
+                              fill="#ffffff"
+                              textAnchor="middle"
+                              dominantBaseline="central"
+                              fontSize={11}
+                              fontWeight={700}
+                            >
+                              {value}
+                            </text>
+                          );
+                        }}
                       >
                         {directorMetrics.channelBreakdown
                           .filter((c) => c.count > 0)
@@ -248,13 +277,9 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
                       </Pie>
                       <Tooltip
                         formatter={(value, name) => [`${value ?? 0} proc`, String(name ?? '')]}
-                        contentStyle={{
-                          backgroundColor: '#0f172a',
-                          borderColor: '#1e293b',
-                          borderRadius: '8px',
-                          fontSize: '12px',
-                          color: '#f8fafc',
-                        }}
+                        contentStyle={CHART_TOOLTIP_STYLE}
+                        itemStyle={CHART_TOOLTIP_ITEM_STYLE}
+                        labelStyle={CHART_TOOLTIP_LABEL_STYLE}
                       />
                     </PieChart>
                   </ResponsiveContainer>
@@ -358,11 +383,11 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
                 No modal data for current filters.
               </div>
             ) : (
-              <div className="h-[145px]">
+              <div className="h-[155px] text-slate-700 dark:text-slate-200">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart
                     data={directorMetrics.containerAndModal.modalChartData}
-                    margin={{ top: 8, right: 12, left: -16, bottom: 2 }}
+                    margin={{ top: 20, right: 12, left: -16, bottom: 2 }}
                   >
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.18)" />
                     <XAxis
@@ -382,18 +407,21 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
                         Number(value ?? 0),
                         name === 'count' ? 'Units / Shipments' : 'TEUs',
                       ]}
-                      contentStyle={{
-                        backgroundColor: '#0f172a',
-                        borderColor: '#1e293b',
-                        borderRadius: '8px',
-                        fontSize: '12px',
-                        color: '#f8fafc',
-                      }}
+                      contentStyle={CHART_TOOLTIP_STYLE}
+                      itemStyle={CHART_TOOLTIP_ITEM_STYLE}
+                      labelStyle={CHART_TOOLTIP_LABEL_STYLE}
                     />
                     <Bar dataKey="count" name="count" radius={[5, 5, 0, 0]} maxBarSize={48}>
                       {directorMetrics.containerAndModal.modalChartData.map((entry) => (
                         <Cell key={entry.label} fill={entry.color} />
                       ))}
+                      <LabelList
+                        dataKey="count"
+                        position="top"
+                        fill="currentColor"
+                        fontSize={11}
+                        fontWeight={600}
+                      />
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
@@ -424,12 +452,12 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-center flex-1">
-                <div className="sm:col-span-6 h-[200px]">
+                <div className="sm:col-span-6 h-[200px] text-slate-700 dark:text-slate-200">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart
                       layout="vertical"
                       data={directorMetrics.processPipeline}
-                      margin={{ top: 4, right: 12, left: 2, bottom: 4 }}
+                      margin={{ top: 4, right: 26, left: 2, bottom: 4 }}
                     >
                       <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.18)" horizontal={false} />
                       <XAxis
@@ -449,18 +477,21 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
                       />
                       <Tooltip
                         formatter={(value) => [`${value ?? 0} processes`, 'Stage Count']}
-                        contentStyle={{
-                          backgroundColor: '#0f172a',
-                          borderColor: '#1e293b',
-                          borderRadius: '8px',
-                          fontSize: '12px',
-                          color: '#f8fafc',
-                        }}
+                        contentStyle={CHART_TOOLTIP_STYLE}
+                        itemStyle={CHART_TOOLTIP_ITEM_STYLE}
+                        labelStyle={CHART_TOOLTIP_LABEL_STYLE}
                       />
                       <Bar dataKey="count" radius={[0, 5, 5, 0]} barSize={18}>
                         {directorMetrics.processPipeline.map((entry) => (
                           <Cell key={entry.stage} fill={entry.color} />
                         ))}
+                        <LabelList
+                          dataKey="count"
+                          position="right"
+                          fill="currentColor"
+                          fontSize={11}
+                          fontWeight={600}
+                        />
                       </Bar>
                     </BarChart>
                   </ResponsiveContainer>
@@ -550,11 +581,11 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
                 No timing telemetry available for current filters.
               </div>
             ) : (
-              <div className="h-[145px]">
+              <div className="h-[155px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart
                     data={directorMetrics.timingMetrics.perProcess}
-                    margin={{ top: 8, right: 8, left: -16, bottom: 2 }}
+                    margin={{ top: 20, right: 8, left: -16, bottom: 2 }}
                   >
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.18)" />
                     <XAxis
@@ -570,17 +601,40 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
                       tickLine={false}
                     />
                     <Tooltip
-                      contentStyle={{
-                        backgroundColor: '#0f172a',
-                        borderColor: '#1e293b',
-                        borderRadius: '8px',
-                        fontSize: '12px',
-                        color: '#f8fafc',
-                      }}
+                      contentStyle={CHART_TOOLTIP_STYLE}
+                      itemStyle={CHART_TOOLTIP_ITEM_STYLE}
+                      labelStyle={CHART_TOOLTIP_LABEL_STYLE}
                     />
-                    <Bar dataKey="transitDays" name="Transit (d)" fill="#06b6d4" radius={[3, 3, 0, 0]} />
-                    <Bar dataKey="clearanceDays" name="Clearance (d)" fill="#10b981" radius={[3, 3, 0, 0]} />
-                    <Bar dataKey="storageDays" name="Port Storage (d)" fill="#f59e0b" radius={[3, 3, 0, 0]} />
+                    <Bar dataKey="transitDays" name="Transit (d)" fill="#06b6d4" radius={[3, 3, 0, 0]}>
+                      <LabelList
+                        dataKey="transitDays"
+                        position="top"
+                        fill="#06b6d4"
+                        fontSize={9}
+                        fontWeight={600}
+                        formatter={(v) => (Number(v) > 0 ? `${v}d` : '')}
+                      />
+                    </Bar>
+                    <Bar dataKey="clearanceDays" name="Clearance (d)" fill="#10b981" radius={[3, 3, 0, 0]}>
+                      <LabelList
+                        dataKey="clearanceDays"
+                        position="top"
+                        fill="#10b981"
+                        fontSize={9}
+                        fontWeight={600}
+                        formatter={(v) => (Number(v) > 0 ? `${v}d` : '')}
+                      />
+                    </Bar>
+                    <Bar dataKey="storageDays" name="Port Storage (d)" fill="#f59e0b" radius={[3, 3, 0, 0]}>
+                      <LabelList
+                        dataKey="storageDays"
+                        position="top"
+                        fill="#f59e0b"
+                        fontSize={9}
+                        fontWeight={600}
+                        formatter={(v) => (Number(v) > 0 ? `${v}d` : '')}
+                      />
+                    </Bar>
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -745,9 +799,9 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
               Rose bars = past EINDT
             </p>
           </div>
-          <div className="flex-1 min-h-[240px]">
+          <div className="flex-1 min-h-[240px] text-slate-700 dark:text-slate-200">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={openPoChartData} margin={{ top: 8, right: 6, left: -18, bottom: 18 }}>
+              <BarChart data={openPoChartData} margin={{ top: 20, right: 6, left: -18, bottom: 18 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.18)" />
                 <XAxis
                   dataKey="name"
@@ -764,18 +818,22 @@ export const ExecutivePanel: React.FC<ExecutivePanelProps> = ({
                   tickLine={false}
                 />
                 <Tooltip
-                  contentStyle={{
-                    backgroundColor: '#0f172a',
-                    borderColor: '#1e293b',
-                    borderRadius: '8px',
-                    fontSize: '12px',
-                    color: '#f8fafc',
-                  }}
+                  contentStyle={CHART_TOOLTIP_STYLE}
+                  itemStyle={CHART_TOOLTIP_ITEM_STYLE}
+                  labelStyle={CHART_TOOLTIP_LABEL_STYLE}
                 />
                 <Bar dataKey="pending" name="Open Qty" radius={[4, 4, 0, 0]}>
                   {openPoChartData.map((entry, idx) => (
                     <Cell key={idx} fill={entry.delayed ? '#f43f5e' : '#06b6d4'} />
                   ))}
+                  <LabelList
+                    dataKey="pending"
+                    position="top"
+                    fill="currentColor"
+                    fontSize={10}
+                    fontWeight={600}
+                    formatter={(v) => formatCompactQty(Number(v) || 0)}
+                  />
                 </Bar>
               </BarChart>
             </ResponsiveContainer>

@@ -1,16 +1,33 @@
 import type {
+  AbcClass,
   CashFlowEntry,
   ComexFilters,
   DateFilterBasis,
   FupItemRow,
+  KraljicOverride,
+  KraljicQuadrant,
+  MaterialAnalyticsResult,
+  MaterialProcurementItem,
   MatrixColumnMeta,
   MatrixMaterialRow,
   MatrixProjectSection,
+  NumerarioAnalysisResult,
+  NumerarioCostLine,
+  NumerarioFinanceStatus,
+  NumerarioOverride,
+  NumerarioSourceType,
+  NumerarioTaxRegime,
   OrderStatusMatrixData,
   PartnerScorecard,
+  PqrClass,
   ShipmentOperationalStatus,
   ShipmentOverrides,
   ShipmentProcessRow,
+  SimilarGroupDecision,
+  SimilarItemsAnalysisResult,
+  SimilarMaterialGroup,
+  SimilarMatchTier,
+  SimilarPairEvidence,
   SwotData,
 } from '../types/comex';
 import { daysBetween, formatDateBr } from './sapParser';
@@ -233,10 +250,18 @@ export function computeExecutiveKpis(
   let fullTaxFobBrl = 0;
   let totalTaxesBrl = 0;
   for (const item of nonDeleted) {
+    const itemRate =
+      item.MOEDA === 'BRL'
+        ? 1
+        : item.MOEDA === 'EUR'
+          ? item.FUP_TAXA_EURO_PROCESSO || 6.12
+          : item.FUP_TAXA_DOLAR_PROCESSO || 5.65;
     const fobBrl =
-      item.FUP_VALOR_FOB_REAIS_PROCESSO > 0
-        ? item.FUP_VALOR_FOB_REAIS_PROCESSO
-        : item.VALOR_LIQUIDO * (item.MOEDA === 'EUR' ? item.FUP_TAXA_EURO_PROCESSO || 6.1 : item.FUP_TAXA_DOLAR_PROCESSO || 5.65);
+      item.FUP_VALOR_MERCADORIA > 0
+        ? item.FUP_VALOR_MERCADORIA
+        : item.FUP_VALOR_FOB_REAIS_PROCESSO > 0
+          ? item.FUP_VALOR_FOB_REAIS_PROCESSO
+          : item.VALOR_LIQUIDO * itemRate;
     if (item.FUP_ATO_CONCESSORIO) {
       drawbackFobBrl += fobBrl;
     } else {
@@ -337,10 +362,18 @@ export function computeExecutiveKpis(
     } else {
       entry.pendingShipmentQty += item.QUANTIDADE_PENDENTE;
     }
+    const itemRate =
+      item.MOEDA === 'BRL'
+        ? 1
+        : item.MOEDA === 'EUR'
+          ? item.FUP_TAXA_EURO_PROCESSO || 6.12
+          : item.FUP_TAXA_DOLAR_PROCESSO || 5.65;
     entry.totalValueBrl +=
-      item.FUP_VALOR_FOB_REAIS_PROCESSO > 0
-        ? item.FUP_VALOR_FOB_REAIS_PROCESSO
-        : item.VALOR_LIQUIDO * (item.MOEDA === 'EUR' ? item.FUP_TAXA_EURO_PROCESSO || 6.1 : item.FUP_TAXA_DOLAR_PROCESSO || 5.65);
+      item.FUP_VALOR_MERCADORIA > 0
+        ? item.FUP_VALOR_MERCADORIA
+        : item.FUP_VALOR_FOB_REAIS_PROCESSO > 0
+          ? item.FUP_VALOR_FOB_REAIS_PROCESSO
+          : item.VALOR_LIQUIDO * itemRate;
 
     pepMap.set(key, entry);
   }
@@ -428,15 +461,17 @@ export function buildShipmentProcesses(
     const paidList = Array.from(new Set(groupItems.map((i) => i.FUP_DOCUMENTOS_COMPENSACAO).filter(Boolean))).join(', ');
 
     const currency = primary.MOEDA || 'USD';
-    const ptax =
-      currency === 'EUR'
-        ? primary.FUP_TAXA_EURO_PROCESSO || 6.12
-        : primary.FUP_TAXA_DOLAR_PROCESSO || 5.65;
+    const taxaUsd =
+      groupItems.find((i) => i.FUP_TAXA_DOLAR_PROCESSO > 0)?.FUP_TAXA_DOLAR_PROCESSO || 5.65;
+    const taxaEur =
+      groupItems.find((i) => i.FUP_TAXA_EURO_PROCESSO > 0)?.FUP_TAXA_EURO_PROCESSO || 6.12;
+    const ptax = currency === 'BRL' ? 1 : currency === 'EUR' ? taxaEur : taxaUsd;
 
     const invoiceValue = groupItems.reduce((s, i) => s + i.VALOR_LIQUIDO, 0);
-    const brlFobSum = groupItems.reduce((s, i) => s + i.FUP_VALOR_FOB_REAIS_PROCESSO, 0);
-    const brlFob = brlFobSum > 0 ? brlFobSum : invoiceValue * ptax;
-    const usdFob = currency === 'USD' ? invoiceValue : brlFob / (primary.FUP_TAXA_DOLAR_PROCESSO || 5.65);
+    const brlMercSum = groupItems.reduce((s, i) => s + i.FUP_VALOR_MERCADORIA, 0);
+    const maxProcFob = Math.max(...groupItems.map((i) => i.FUP_VALOR_FOB_REAIS_PROCESSO), 0);
+    const brlFob = brlMercSum > 0 ? brlMercSum : maxProcFob > 0 ? maxProcFob : invoiceValue * ptax;
+    const usdFob = currency === 'USD' ? invoiceValue : brlFob / taxaUsd;
 
     const brlFrete = groupItems.reduce((s, i) => s + i.FUP_TOTAL_FRETE_FISCAL_ITEM, 0);
     const freightCost = ov.freightCost !== undefined ? ov.freightCost : ptax > 0 ? Math.round((brlFrete / ptax) * 100) / 100 : 0;
@@ -468,9 +503,9 @@ export function buildShipmentProcesses(
     const transitTime = procJson.TRANSIT_TIME_ATUALIZADO || (etd && eta ? Math.max(0, daysBetween(etd, eta)) : 0);
     const leadTime = procJson.LEAD_TIME_ENTREGA || (etd && recebimento ? Math.max(0, daysBetween(etd, recebimento)) : 0);
 
-    const trucking = ov.truckingCost ?? procJson.FRETE_NACIONAL ?? (recebimento ? 3850 : 0);
-    const brokerFee = ov.brokerFee ?? procJson.BROKER_FEE ?? (primary.NUM_DI ? 1950 : 0);
-    const liFee = ov.liFee ?? procJson.LI_FEE ?? (acList ? 480 : 0);
+    const trucking = ov.truckingCost ?? procJson.FRETE_NACIONAL ?? 0;
+    const brokerFee = ov.brokerFee ?? procJson.BROKER_FEE ?? 0;
+    const liFee = ov.liFee ?? procJson.LI_FEE ?? 0;
     const demurrage = ov.demurrageCost ?? procJson.DEMURRAGE_COST ?? 0;
 
     const totalCostBrl = armazenagem + trucking + brokerFee + brlFrete + liFee + demurrage + afrmm;
@@ -1339,4 +1374,1583 @@ export function computeDirectorChartMetrics(processes: ShipmentProcessRow[]): Di
     },
   };
 }
+
+export function getKraljicStrategy(quadrant: KraljicQuadrant): string {
+  switch (quadrant) {
+    case 'STRATEGIC':
+      return 'Long-term partnership, dual-sourcing qualification, safety stock & Drawback AC lock-in';
+    case 'LEVERAGE':
+      return 'Competitive bidding, volume consolidation across PEPs, frame agreements & price leverage';
+    case 'BOTTLENECK':
+      return 'Secure supply continuity, buffer inventory in Plant 0003, expedite customs & qualify backups';
+    case 'NON_CRITICAL':
+    default:
+      return 'Standardize catalog POs, batch replenishment & automate SAP ordering to cut admin cost';
+  }
+}
+
+export function buildMaterialAnalytics(
+  items: FupItemRow[],
+  kraljicOverrides: Record<string, KraljicOverride> = {}
+): MaterialAnalyticsResult {
+  const emptyPqr: Record<PqrClass, { count: number; spendBrl: number; qty: number }> = {
+    P: { count: 0, spendBrl: 0, qty: 0 },
+    Q: { count: 0, spendBrl: 0, qty: 0 },
+    R: { count: 0, spendBrl: 0, qty: 0 },
+  };
+  const emptyAbc: Record<AbcClass, { count: number; spendBrl: number }> = {
+    A: { count: 0, spendBrl: 0 },
+    B: { count: 0, spendBrl: 0 },
+    C: { count: 0, spendBrl: 0 },
+  };
+  const emptyQuadrant: Record<
+    KraljicQuadrant,
+    { count: number; spendBrl: number; spendPct: number }
+  > = {
+    STRATEGIC: { count: 0, spendBrl: 0, spendPct: 0 },
+    LEVERAGE: { count: 0, spendBrl: 0, spendPct: 0 },
+    BOTTLENECK: { count: 0, spendBrl: 0, spendPct: 0 },
+    NON_CRITICAL: { count: 0, spendBrl: 0, spendPct: 0 },
+  };
+
+  if (items.length === 0) {
+    return {
+      materials: [],
+      totalSkus: 0,
+      totalSpendBrl: 0,
+      totalOrderedQty: 0,
+      totalReceivedQty: 0,
+      totalStockPlant0003: 0,
+      mostBought: null,
+      mostUsed: null,
+      mostExpensive: null,
+      highestUnitCost: null,
+      pqrCounts: emptyPqr,
+      abcCounts: emptyAbc,
+      quadrantSummary: emptyQuadrant,
+    };
+  }
+
+  const grouped = new Map<string, FupItemRow[]>();
+  for (const item of items) {
+    const key = item.MATERIAL || item.DESCRICAO_MATERIAL || item.id;
+    const list = grouped.get(key) || [];
+    list.push(item);
+    grouped.set(key, list);
+  }
+
+  interface RawAgg {
+    materialKey: string;
+    materialCode: string;
+    descPt: string;
+    descEn: string;
+    ncm: string;
+    unit: string;
+    poNumbers: string[];
+    poCount: number;
+    lineCount: number;
+    processRefs: string[];
+    suppliers: string[];
+    pepProjects: string[];
+    totalOrderedQty: number;
+    totalReceivedQty: number;
+    totalPendingQty: number;
+    stockFree: number;
+    stockQuality: number;
+    stockBlocked: number;
+    totalStockPlant0003: number;
+    effectiveUsageQty: number;
+    utilizationPct: number;
+    totalSpendBrl: number;
+    totalSpendOrig: number;
+    currency: string;
+    avgUnitPriceBrl: number;
+    maxUnitPriceBrl: number;
+    avgDelayDays: number;
+    delayedCount: number;
+    hasMissingAc: boolean;
+    hasRedChannel: boolean;
+    hasYellowOrGrayChannel: boolean;
+    hasAirUrgency: boolean;
+    hasUnshippedOpen: boolean;
+    groupItems: FupItemRow[];
+  }
+
+  const rawList: RawAgg[] = [];
+  let grandTotalSpendBrl = 0;
+  let grandTotalOrderedQty = 0;
+  let grandTotalReceivedQty = 0;
+  let grandTotalStockPlant0003 = 0;
+  let totalPoOccurrences = 0;
+
+  for (const [materialKey, groupItems] of grouped.entries()) {
+    const primary = groupItems[0];
+    const poNumbers = Array.from(new Set(groupItems.map((i) => i.PEDIDO).filter(Boolean)));
+    const processRefs = Array.from(
+      new Set(groupItems.map((i) => i.ULTIMO_PROCESSO_IMPORTACAO).filter(Boolean))
+    );
+    const suppliers = Array.from(
+      new Set(groupItems.map((i) => i.NOME_FORNECEDOR).filter(Boolean))
+    );
+    const pepProjects = Array.from(
+      new Set(groupItems.map((i) => i.DESCRICAO_ELEMENTO_PEP || i.ELEMENTO_PEP_INTERNO).filter(Boolean))
+    );
+    const ncmSet = Array.from(
+      new Set(
+        groupItems
+          .flatMap((i) => (i.FUP_NCMS ? i.FUP_NCMS.split(',').map((s) => s.trim()) : []))
+          .filter(Boolean)
+      )
+    );
+
+    const totalOrderedQty = groupItems.reduce((s, i) => s + Math.max(0, i.QUANTIDADE_PEDIDA), 0);
+    const totalReceivedQty = groupItems.reduce(
+      (s, i) => s + Math.max(0, i.QUANTIDADE_RECEBIDA_LIQUIDA),
+      0
+    );
+    const totalPendingQty = groupItems.reduce(
+      (s, i) => s + Math.max(0, i.QUANTIDADE_PENDENTE),
+      0
+    );
+
+    // Plant stock is a material-level snapshot repeated on PO rows, so take max across rows
+    const stockFree = Math.max(...groupItems.map((i) => Math.max(0, i.ESTOQUE_LIVRE_PLANTA_0003)), 0);
+    const stockQuality = Math.max(...groupItems.map((i) => Math.max(0, i.ESTOQUE_QUALIDADE_PLANTA_0003)), 0);
+    const stockBlocked = Math.max(...groupItems.map((i) => Math.max(0, i.ESTOQUE_BLOQUEADO_PLANTA_0003)), 0);
+    const totalStockPlant0003 = Math.max(
+      ...groupItems.map((i) => Math.max(0, i.ESTOQUE_SOMA_TRES_CATEGORIAS_PLANTA_0003)),
+      stockFree + stockQuality + stockBlocked
+    );
+    const effectiveUsageQty = Math.max(totalReceivedQty, totalStockPlant0003);
+    const utilizationPct =
+      totalOrderedQty > 0
+        ? Math.min(100, Math.round((effectiveUsageQty / totalOrderedQty) * 1000) / 10)
+        : effectiveUsageQty > 0
+          ? 100
+          : 0;
+
+    let totalSpendBrl = 0;
+    let totalSpendOrig = 0;
+    let maxUnitPriceBrl = 0;
+
+    for (const row of groupItems) {
+      const ptax =
+        row.MOEDA === 'BRL'
+          ? 1
+          : row.MOEDA === 'EUR'
+            ? row.FUP_TAXA_EURO_PROCESSO || 6.12
+            : row.FUP_TAXA_DOLAR_PROCESSO || 5.65;
+      const rowBrl =
+        row.FUP_VALOR_FOB_REAIS_PROCESSO > 0
+          ? row.FUP_VALOR_FOB_REAIS_PROCESSO
+          : row.VALOR_LIQUIDO * ptax;
+      totalSpendBrl += rowBrl;
+      totalSpendOrig += row.VALOR_LIQUIDO;
+
+      const unitOrig =
+        row.PRECO_UNITARIO > 0
+          ? row.PRECO_UNITARIO
+          : row.QUANTIDADE_PEDIDA > 0
+            ? row.VALOR_LIQUIDO / row.QUANTIDADE_PEDIDA
+            : row.VALOR_LIQUIDO;
+      const unitBrl = unitOrig * ptax;
+      if (unitBrl > maxUnitPriceBrl) maxUnitPriceBrl = unitBrl;
+    }
+
+    const avgUnitPriceBrl =
+      totalOrderedQty > 0 ? totalSpendBrl / totalOrderedQty : maxUnitPriceBrl;
+
+    const delayedRows = groupItems.filter(
+      (i) => i.STATUS_PRAZO_ENTREGA === 'ATRASADO' || i.DIAS_ATRASO_ENTREGA > 0
+    );
+    const avgDelayDays =
+      delayedRows.length > 0
+        ? Math.round(
+            (delayedRows.reduce((s, i) => s + Math.max(0, i.DIAS_ATRASO_ENTREGA), 0) /
+              delayedRows.length) *
+              10
+          ) / 10
+        : 0;
+
+    const hasMissingAc = groupItems.some(
+      (i) => isDrawbackExpectedNcm(i.FUP_NCMS) && !i.FUP_ATO_CONCESSORIO
+    );
+    const hasRedChannel = groupItems.some((i) => i.FUP_CANAL_PARAMETRIZACAO === 'VM');
+    const hasYellowOrGrayChannel = groupItems.some(
+      (i) => i.FUP_CANAL_PARAMETRIZACAO === 'AM' || i.FUP_CANAL_PARAMETRIZACAO === 'CZ'
+    );
+    const hasAirUrgency = groupItems.some((i) => i.FUP_TIPO_EMBARQUE === 'A');
+    const hasUnshippedOpen = groupItems.some(
+      (i) => i.QUANTIDADE_PENDENTE > 0 && !i.ULTIMO_PROCESSO_IMPORTACAO
+    );
+
+    const poCount = Math.max(poNumbers.length, 1);
+    grandTotalSpendBrl += totalSpendBrl;
+    grandTotalOrderedQty += totalOrderedQty;
+    grandTotalReceivedQty += totalReceivedQty;
+    grandTotalStockPlant0003 += totalStockPlant0003;
+    totalPoOccurrences += poCount;
+
+    rawList.push({
+      materialKey,
+      materialCode: primary.MATERIAL || '-',
+      descPt: primary.DESCRICAO_MATERIAL || primary.DESCRICAO_MATERIAL_INGLES || '-',
+      descEn: primary.DESCRICAO_MATERIAL_INGLES || '-',
+      ncm: ncmSet.join(', ') || 'SEM NCM',
+      unit: primary.UNIDADE || 'UND',
+      poNumbers,
+      poCount,
+      lineCount: groupItems.length,
+      processRefs,
+      suppliers,
+      pepProjects,
+      totalOrderedQty,
+      totalReceivedQty,
+      totalPendingQty,
+      stockFree,
+      stockQuality,
+      stockBlocked,
+      totalStockPlant0003,
+      effectiveUsageQty,
+      utilizationPct,
+      totalSpendBrl,
+      totalSpendOrig,
+      currency: primary.MOEDA || 'USD',
+      avgUnitPriceBrl,
+      maxUnitPriceBrl,
+      avgDelayDays,
+      delayedCount: delayedRows.length,
+      hasMissingAc,
+      hasRedChannel,
+      hasYellowOrGrayChannel,
+      hasAirUrgency,
+      hasUnshippedOpen,
+      groupItems,
+    });
+  }
+
+  // 1. ABC Spend Classification
+  const sortedBySpend = [...rawList].sort((a, b) => b.totalSpendBrl - a.totalSpendBrl);
+  const abcMap = new Map<
+    string,
+    { abcClass: AbcClass; spendSharePct: number; cumulativeSpendPct: number }
+  >();
+  let cumSpend = 0;
+  sortedBySpend.forEach((m, idx) => {
+    const share = grandTotalSpendBrl > 0 ? (m.totalSpendBrl / grandTotalSpendBrl) * 100 : 100 / rawList.length;
+    const prevCum = cumSpend;
+    cumSpend += share;
+    const abcClass: AbcClass =
+      idx === 0 || prevCum < 80 ? 'A' : prevCum < 95 ? 'B' : 'C';
+    abcMap.set(m.materialKey, {
+      abcClass,
+      spendSharePct: Math.round(share * 10) / 10,
+      cumulativeSpendPct: Math.min(100, Math.round(cumSpend * 10) / 10),
+    });
+  });
+
+  // 2. PQR Demand Velocity & Volume Classification
+  const demandScoreOf = (m: RawAgg) => {
+    const poShare = totalPoOccurrences > 0 ? (m.poCount / totalPoOccurrences) * 100 : 0;
+    const qtyShare = grandTotalOrderedQty > 0 ? (m.totalOrderedQty / grandTotalOrderedQty) * 100 : 0;
+    return 0.5 * poShare + 0.5 * qtyShare;
+  };
+  const sortedByDemand = [...rawList].sort((a, b) => {
+    const diff = demandScoreOf(b) - demandScoreOf(a);
+    if (Math.abs(diff) > 0.0001) return diff;
+    return b.totalSpendBrl - a.totalSpendBrl;
+  });
+  const pqrMap = new Map<
+    string,
+    { pqrClass: PqrClass; demandSharePct: number; cumulativeDemandPct: number }
+  >();
+  let cumDemand = 0;
+  sortedByDemand.forEach((m, idx) => {
+    const share = demandScoreOf(m);
+    const prevCum = cumDemand;
+    cumDemand += share;
+    const pqrClass: PqrClass =
+      idx === 0 || prevCum < 70 ? 'P' : prevCum < 90 ? 'Q' : 'R';
+    pqrMap.set(m.materialKey, {
+      pqrClass,
+      demandSharePct: Math.round(share * 10) / 10,
+      cumulativeDemandPct: Math.min(100, Math.round(cumDemand * 10) / 10),
+    });
+  });
+
+  // 3. Kraljic Scores (Profit Impact 0-100, Supply Risk 0-100)
+  const maxMaterialSpendBrl = Math.max(...rawList.map((m) => m.totalSpendBrl), 1);
+  const maxOverallUnitBrl = Math.max(...rawList.map((m) => m.maxUnitPriceBrl), 1);
+
+  const materials: MaterialProcurementItem[] = sortedBySpend.map((m) => {
+    const abc = abcMap.get(m.materialKey)!;
+    const pqr = pqrMap.get(m.materialKey)!;
+
+    const spendComponent = (m.totalSpendBrl / maxMaterialSpendBrl) * 80;
+    const unitComponent =
+      maxOverallUnitBrl > 0
+        ? (Math.log10(1 + m.maxUnitPriceBrl) / Math.log10(1 + maxOverallUnitBrl)) * 20
+        : 0;
+    const profitImpactScore = Math.min(100, Math.round(spendComponent + unitComponent));
+
+    let supplyRiskScore = 0;
+    const riskDrivers: string[] = [];
+
+    if (m.suppliers.length <= 1) {
+      supplyRiskScore += 25;
+      riskDrivers.push('Single supplier');
+    } else if (m.suppliers.length === 2) {
+      supplyRiskScore += 12;
+      riskDrivers.push('2 suppliers');
+    } else {
+      supplyRiskScore += 5;
+    }
+
+    if (m.avgDelayDays > 10) {
+      supplyRiskScore += 25;
+      riskDrivers.push(`Avg delay +${m.avgDelayDays}d`);
+    } else if (m.avgDelayDays > 0) {
+      supplyRiskScore += 15;
+      riskDrivers.push(`Avg delay +${m.avgDelayDays}d`);
+    }
+
+    const pendingRatio = m.totalOrderedQty > 0 ? m.totalPendingQty / m.totalOrderedQty : 0;
+    if (pendingRatio > 0.5) {
+      supplyRiskScore += 15;
+      riskDrivers.push(`${Math.round(pendingRatio * 100)}% pending delivery`);
+    } else if (pendingRatio > 0) {
+      supplyRiskScore += 8;
+      riskDrivers.push(`${Math.round(pendingRatio * 100)}% pending`);
+    }
+
+    if (m.hasMissingAc) {
+      supplyRiskScore += 20;
+      riskDrivers.push('Missing Drawback AC');
+    }
+
+    if (m.hasRedChannel) {
+      supplyRiskScore += 15;
+      riskDrivers.push('Canal Vermelho');
+    } else if (m.hasYellowOrGrayChannel) {
+      supplyRiskScore += 8;
+      riskDrivers.push('Canal Amarelo/Cinza');
+    }
+
+    if (m.hasAirUrgency) {
+      supplyRiskScore += 5;
+      riskDrivers.push('Air freight modal');
+    }
+
+    if (m.hasUnshippedOpen) {
+      supplyRiskScore += 10;
+      riskDrivers.push('Unshipped open PO');
+    }
+
+    supplyRiskScore = Math.min(100, supplyRiskScore);
+
+    const highImpact = profitImpactScore >= 50;
+    const highRisk = supplyRiskScore >= 50;
+    const computedQuadrant: KraljicQuadrant =
+      highImpact && highRisk
+        ? 'STRATEGIC'
+        : highImpact && !highRisk
+          ? 'LEVERAGE'
+          : !highImpact && highRisk
+            ? 'BOTTLENECK'
+            : 'NON_CRITICAL';
+
+    const override = kraljicOverrides[m.materialKey];
+    const kraljicQuadrant = override?.quadrant || computedQuadrant;
+
+    emptyPqr[pqr.pqrClass].count += 1;
+    emptyPqr[pqr.pqrClass].spendBrl += m.totalSpendBrl;
+    emptyPqr[pqr.pqrClass].qty += m.totalOrderedQty;
+
+    emptyAbc[abc.abcClass].count += 1;
+    emptyAbc[abc.abcClass].spendBrl += m.totalSpendBrl;
+
+    emptyQuadrant[kraljicQuadrant].count += 1;
+    emptyQuadrant[kraljicQuadrant].spendBrl += m.totalSpendBrl;
+
+    return {
+      materialKey: m.materialKey,
+      materialCode: m.materialCode,
+      descPt: m.descPt,
+      descEn: m.descEn,
+      ncm: m.ncm,
+      unit: m.unit,
+      poCount: m.poCount,
+      lineCount: m.lineCount,
+      poNumbers: m.poNumbers,
+      processRefs: m.processRefs,
+      suppliers: m.suppliers,
+      pepProjects: m.pepProjects,
+      totalOrderedQty: m.totalOrderedQty,
+      totalReceivedQty: m.totalReceivedQty,
+      totalPendingQty: m.totalPendingQty,
+      stockFree: m.stockFree,
+      stockQuality: m.stockQuality,
+      stockBlocked: m.stockBlocked,
+      totalStockPlant0003: m.totalStockPlant0003,
+      effectiveUsageQty: m.effectiveUsageQty,
+      utilizationPct: m.utilizationPct,
+      avgUnitPriceBrl: m.avgUnitPriceBrl,
+      maxUnitPriceBrl: m.maxUnitPriceBrl,
+      totalSpendBrl: m.totalSpendBrl,
+      totalSpendOrig: m.totalSpendOrig,
+      currency: m.currency,
+      spendSharePct: abc.spendSharePct,
+      cumulativeSpendPct: abc.cumulativeSpendPct,
+      demandSharePct: pqr.demandSharePct,
+      cumulativeDemandPct: pqr.cumulativeDemandPct,
+      pqrClass: pqr.pqrClass,
+      abcClass: abc.abcClass,
+      profitImpactScore,
+      supplyRiskScore,
+      riskDrivers,
+      computedQuadrant,
+      kraljicQuadrant,
+      overrideNote: override?.note || '',
+      recommendedStrategy: getKraljicStrategy(kraljicQuadrant),
+      avgDelayDays: m.avgDelayDays,
+      delayedCount: m.delayedCount,
+      hasMissingAc: m.hasMissingAc,
+      items: m.groupItems,
+    };
+  });
+
+  for (const qKey of Object.keys(emptyQuadrant) as KraljicQuadrant[]) {
+    emptyQuadrant[qKey].spendPct =
+      grandTotalSpendBrl > 0
+        ? Math.round((emptyQuadrant[qKey].spendBrl / grandTotalSpendBrl) * 1000) / 10
+        : 0;
+  }
+
+  const mostBought =
+    [...materials].sort(
+      (a, b) =>
+        b.poCount - a.poCount ||
+        b.totalOrderedQty - a.totalOrderedQty ||
+        b.totalSpendBrl - a.totalSpendBrl
+    )[0] || null;
+
+  const mostUsed =
+    [...materials].sort(
+      (a, b) =>
+        b.effectiveUsageQty - a.effectiveUsageQty ||
+        b.totalReceivedQty - a.totalReceivedQty ||
+        b.totalStockPlant0003 - a.totalStockPlant0003
+    )[0] || null;
+
+  const mostExpensive = materials[0] || null; // already sorted by totalSpendBrl desc
+  const highestUnitCost =
+    [...materials].sort((a, b) => b.maxUnitPriceBrl - a.maxUnitPriceBrl)[0] || null;
+
+  return {
+    materials,
+    totalSkus: materials.length,
+    totalSpendBrl: grandTotalSpendBrl,
+    totalOrderedQty: grandTotalOrderedQty,
+    totalReceivedQty: grandTotalReceivedQty,
+    totalStockPlant0003: grandTotalStockPlant0003,
+    mostBought,
+    mostUsed,
+    mostExpensive,
+    highestUnitCost,
+    pqrCounts: emptyPqr,
+    abcCounts: emptyAbc,
+    quadrantSummary: emptyQuadrant,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Similar Items / Duplicate SAP Material Code Detection
+// ---------------------------------------------------------------------------
+
+const MATERIAL_STOPWORDS = new Set([
+  'de', 'da', 'do', 'das', 'dos', 'para', 'por', 'com', 'sem', 'em', 'no', 'na',
+  'e', 'ou', 'a', 'o', 'as', 'os', 'um', 'uma', 'of', 'for', 'with', 'without',
+  'and', 'or', 'the', 'to', 'in', 'on', 'by', 'tipo', 'type', 'modelo', 'model',
+  'item', 'peca', 'part',
+]);
+
+const CANONICAL_SYNONYMS: Record<string, string> = {
+  pol: 'pol',
+  polegada: 'pol',
+  polegadas: 'pol',
+  inch: 'pol',
+  inches: 'pol',
+  aco: 'aco',
+  steel: 'aco',
+  inox: 'inox',
+  inoxidavel: 'inox',
+  stainless: 'inox',
+  ss: 'inox',
+  conector: 'conector',
+  conectores: 'conector',
+  connector: 'conector',
+  connectors: 'conector',
+  engate: 'engate',
+  coupling: 'engate',
+  rapido: 'rapido',
+  quick: 'rapido',
+  mangueira: 'mangueira',
+  hose: 'mangueira',
+  tubo: 'tubo',
+  tubos: 'tubo',
+  tube: 'tubo',
+  pipe: 'tubo',
+  valvula: 'valvula',
+  valve: 'valvula',
+  cabo: 'cabo',
+  cable: 'cabo',
+  fio: 'fio',
+  fios: 'fio',
+  yarn: 'fio',
+  aramida: 'aramida',
+  aramid: 'aramida',
+  alta: 'alta',
+  high: 'alta',
+  pressao: 'pressao',
+  pressure: 'pressao',
+  flexivel: 'flexivel',
+  flexible: 'flexivel',
+  corrugado: 'corrugado',
+  corrugated: 'corrugado',
+  submarino: 'submarino',
+  subsea: 'submarino',
+  hidraulico: 'hidraulico',
+  hydraulic: 'hidraulico',
+  termoplastica: 'termoplastica',
+  thermoplastic: 'termoplastica',
+  pinos: 'pinos',
+  pino: 'pinos',
+  pin: 'pinos',
+  pins: 'pinos',
+  und: 'und',
+  un: 'und',
+  pc: 'und',
+  pce: 'und',
+  pcs: 'und',
+};
+
+export function normalizeMaterialText(raw: string): string {
+  if (!raw || raw === '-') return '';
+  return raw
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/["'“”]/g, ' pol ')
+    .replace(/(\d+)\s*[x×*]\s*(\d+)/g, '$1x$2')
+    .replace(/[-_,.;:()[\]{}+]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function tokenizeMaterialText(raw: string): string[] {
+  const norm = normalizeMaterialText(raw);
+  if (!norm) return [];
+  const rawTokens = norm.split(' ').filter(Boolean);
+  const canonical: string[] = [];
+  for (const tok of rawTokens) {
+    if (MATERIAL_STOPWORDS.has(tok)) continue;
+    const mapped = CANONICAL_SYNONYMS[tok] || tok;
+    if (mapped.length >= 2 || /\d/.test(mapped)) {
+      canonical.push(mapped);
+    }
+  }
+  return Array.from(new Set(canonical));
+}
+
+function buildBigrams(str: string): Map<string, number> {
+  const clean = str.replace(/\s+/g, '');
+  const map = new Map<string, number>();
+  if (clean.length < 2) return map;
+  for (let i = 0; i < clean.length - 1; i++) {
+    const bg = clean.slice(i, i + 2);
+    map.set(bg, (map.get(bg) || 0) + 1);
+  }
+  return map;
+}
+
+function diceBigrams(a: Map<string, number>, lenA: number, b: Map<string, number>, lenB: number): number {
+  if (lenA === 0 || lenB === 0) return 0;
+  let intersection = 0;
+  for (const [bg, countA] of a.entries()) {
+    const countB = b.get(bg);
+    if (countB) intersection += Math.min(countA, countB);
+  }
+  return (2 * intersection) / (lenA + lenB);
+}
+
+function extractSpecTokens(tokens: string[]): string[] {
+  return tokens.filter((t) => /\d/.test(t));
+}
+
+interface PreparedMaterial {
+  item: MaterialProcurementItem;
+  normPt: string;
+  normEn: string;
+  tokensPt: Set<string>;
+  tokensCombined: Set<string>;
+  specTokens: string[];
+  bigramsPt: Map<string, number>;
+  bigramLenPt: number;
+  bigramsEn: Map<string, number>;
+  bigramLenEn: number;
+  primaryNcm: string;
+  ncmChapter: string;
+}
+
+function prepareMaterialForSimilarity(item: MaterialProcurementItem): PreparedMaterial {
+  const normPt = normalizeMaterialText(item.descPt);
+  const normEn = normalizeMaterialText(item.descEn);
+  const ptTokens = tokenizeMaterialText(item.descPt);
+  const enTokens = tokenizeMaterialText(item.descEn);
+  const combined = Array.from(new Set([...ptTokens, ...enTokens]));
+  const bigramsPt = buildBigrams(normPt);
+  const bigramsEn = buildBigrams(normEn);
+  const sumVals = (m: Map<string, number>) => Array.from(m.values()).reduce((s, v) => s + v, 0);
+  const cleanNcm = (item.ncm === 'SEM NCM' ? '' : item.ncm.split(',')[0] || '').replace(/\D/g, '');
+  return {
+    item,
+    normPt,
+    normEn,
+    tokensPt: new Set(ptTokens),
+    tokensCombined: new Set(combined),
+    specTokens: extractSpecTokens(combined),
+    bigramsPt,
+    bigramLenPt: sumVals(bigramsPt),
+    bigramsEn,
+    bigramLenEn: sumVals(bigramsEn),
+    primaryNcm: cleanNcm,
+    ncmChapter: cleanNcm.slice(0, 4),
+  };
+}
+
+export function computePreparedPairSimilarity(
+  a: PreparedMaterial,
+  b: PreparedMaterial
+): { score: number; reasons: string[]; specDifferences: string[]; sharedTokens: string[] } {
+  const reasons: string[] = [];
+  const specDifferences: string[] = [];
+
+  // Shared canonical tokens
+  const sharedTokens: string[] = [];
+  for (const t of a.tokensCombined) {
+    if (b.tokensCombined.has(t)) sharedTokens.push(t);
+  }
+
+  const samePrimaryNcm = Boolean(a.primaryNcm && b.primaryNcm && a.primaryNcm === b.primaryNcm);
+  const sameNcmChapter = Boolean(!samePrimaryNcm && a.ncmChapter && b.ncmChapter && a.ncmChapter === b.ncmChapter);
+  const sameUnit = Boolean(a.item.unit && b.item.unit && a.item.unit === b.item.unit);
+  const sharedSupplier = a.item.suppliers.some((s) => b.item.suppliers.includes(s));
+
+  // 1. Exact normalized PT or EN description match
+  const exactPt = Boolean(a.normPt && a.normPt === b.normPt);
+  const exactEn = Boolean(a.normEn && a.normEn === b.normEn);
+  if (exactPt || exactEn) {
+    if (exactPt) reasons.push('Exact PT description match');
+    if (exactEn) reasons.push('Exact EN description match');
+    if (samePrimaryNcm) reasons.push(`Same NCM ${a.primaryNcm}`);
+    if (sameUnit) reasons.push(`Same unit (${a.item.unit})`);
+    else reasons.push(`Different units (${a.item.unit} vs ${b.item.unit})`);
+    if (sharedSupplier) reasons.push('Shared supplier');
+    const score = sameUnit ? 100 : 95;
+    return { score, reasons, specDifferences, sharedTokens };
+  }
+
+  // 2. Token Jaccard similarity (PT+EN canonicalized)
+  const unionSize = a.tokensCombined.size + b.tokensCombined.size - sharedTokens.length;
+  const jaccard = unionSize > 0 ? sharedTokens.length / unionSize : 0;
+
+  // 3. Character bigram similarity (best of PT-PT and EN-EN)
+  const dicePt = diceBigrams(a.bigramsPt, a.bigramLenPt, b.bigramsPt, b.bigramLenPt);
+  const diceEn =
+    a.bigramLenEn > 0 && b.bigramLenEn > 0
+      ? diceBigrams(a.bigramsEn, a.bigramLenEn, b.bigramsEn, b.bigramLenEn)
+      : 0;
+  const bestDice = Math.max(dicePt, diceEn);
+
+  // 4. Structural Comex bonus (up to +20)
+  let structuralBonus = 0;
+  if (samePrimaryNcm) {
+    structuralBonus += 10;
+    reasons.push(`Same NCM ${a.primaryNcm}`);
+  } else if (sameNcmChapter) {
+    structuralBonus += 4;
+    reasons.push(`Same NCM chapter ${a.ncmChapter}`);
+  }
+  if (sameUnit) {
+    structuralBonus += 5;
+    reasons.push(`Same unit (${a.item.unit})`);
+  }
+  if (sharedSupplier) {
+    structuralBonus += 5;
+    reasons.push('Shared supplier');
+  }
+
+  // 5. Spec/dimension conflict check (e.g. 10k vs 15k, dn25 vs dn50)
+  const specSetA = new Set(a.specTokens);
+  const specSetB = new Set(b.specTokens);
+  const onlyA = a.specTokens.filter((t) => !specSetB.has(t));
+  const onlyB = b.specTokens.filter((t) => !specSetA.has(t));
+  let specPenalty = 0;
+  if (onlyA.length > 0 && onlyB.length > 0) {
+    specPenalty = 14;
+    specDifferences.push(`${onlyA.slice(0, 2).join('/')} vs ${onlyB.slice(0, 2).join('/')}`);
+  }
+
+  // Weighted similarity
+  const textWeighted = jaccard * 52 + bestDice * 38;
+  const rawScore = Math.round(textWeighted + structuralBonus - specPenalty);
+  const score = Math.max(0, Math.min(99, rawScore));
+
+  if (sharedTokens.length > 0) {
+    const labelTokens = sharedTokens
+      .slice(0, 4)
+      .map((t) => t.toUpperCase())
+      .join(', ');
+    reasons.unshift(`Shared: ${labelTokens}`);
+  }
+  if (bestDice >= 0.72) {
+    reasons.push(`${Math.round(bestDice * 100)}% string match`);
+  }
+
+  return { score, reasons, specDifferences, sharedTokens };
+}
+
+export function detectSimilarMaterials(
+  materials: MaterialProcurementItem[],
+  decisions: Record<string, SimilarGroupDecision> = {},
+  minScore = 55
+): SimilarItemsAnalysisResult {
+  const validMaterials = materials.filter(
+    (m) => m.materialCode && m.materialCode !== '-'
+  );
+
+  if (validMaterials.length < 2) {
+    return {
+      groups: [],
+      totalGroups: 0,
+      totalMaterialsInvolved: 0,
+      exactDuplicateGroups: 0,
+      highSimilarityGroups: 0,
+      confirmedDuplicateGroups: 0,
+      pendingGroups: 0,
+      totalCombinedSpendBrl: 0,
+      maxPriceSpreadPct: 0,
+    };
+  }
+
+  const prepared = validMaterials.map(prepareMaterialForSimilarity);
+  const n = prepared.length;
+
+  // Candidate pair generation: full pairwise up to 500 SKUs, inverted token/NCM index above 500
+  const candidatePairs: Array<[number, number]> = [];
+  if (n <= 500) {
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        if (prepared[i].item.materialCode !== prepared[j].item.materialCode) {
+          candidatePairs.push([i, j]);
+        }
+      }
+    }
+  } else {
+    const inverted = new Map<string, number[]>();
+    const addBucket = (key: string, idx: number) => {
+      const list = inverted.get(key) || [];
+      list.push(idx);
+      inverted.set(key, list);
+    };
+    for (let i = 0; i < n; i++) {
+      for (const tok of prepared[i].tokensCombined) {
+        addBucket(`T:${tok}`, i);
+      }
+      if (prepared[i].primaryNcm) {
+        addBucket(`N:${prepared[i].primaryNcm}`, i);
+      }
+    }
+    const seenPair = new Set<string>();
+    for (const bucket of inverted.values()) {
+      if (bucket.length < 2 || bucket.length > 250) continue;
+      for (let aIdx = 0; aIdx < bucket.length; aIdx++) {
+        for (let bIdx = aIdx + 1; bIdx < bucket.length; bIdx++) {
+          const i = Math.min(bucket[aIdx], bucket[bIdx]);
+          const j = Math.max(bucket[aIdx], bucket[bIdx]);
+          if (prepared[i].item.materialCode === prepared[j].item.materialCode) continue;
+          const key = `${i}:${j}`;
+          if (!seenPair.has(key)) {
+            seenPair.add(key);
+            candidatePairs.push([i, j]);
+          }
+        }
+      }
+    }
+  }
+
+  // Disjoint set (Union-Find) for clustering connected similar material codes
+  const parent = Array.from({ length: n }, (_, i) => i);
+  const find = (x: number): number => {
+    let curr = x;
+    while (parent[curr] !== curr) {
+      parent[curr] = parent[parent[curr]];
+      curr = parent[curr];
+    }
+    return curr;
+  };
+  const unite = (a: number, b: number) => {
+    const ra = find(a);
+    const rb = find(b);
+    if (ra !== rb) parent[rb] = ra;
+  };
+
+  interface MatchedEdge {
+    i: number;
+    j: number;
+    evidence: SimilarPairEvidence;
+    sharedTokens: string[];
+  }
+  const matchedEdges: MatchedEdge[] = [];
+
+  for (const [i, j] of candidatePairs) {
+    const sim = computePreparedPairSimilarity(prepared[i], prepared[j]);
+    if (sim.score >= minScore) {
+      unite(i, j);
+      matchedEdges.push({
+        i,
+        j,
+        evidence: {
+          codeA: prepared[i].item.materialCode,
+          codeB: prepared[j].item.materialCode,
+          score: sim.score,
+          reasons: sim.reasons,
+          specDifferences: sim.specDifferences,
+        },
+        sharedTokens: sim.sharedTokens,
+      });
+    }
+  }
+
+  if (matchedEdges.length === 0) {
+    return {
+      groups: [],
+      totalGroups: 0,
+      totalMaterialsInvolved: 0,
+      exactDuplicateGroups: 0,
+      highSimilarityGroups: 0,
+      confirmedDuplicateGroups: 0,
+      pendingGroups: 0,
+      totalCombinedSpendBrl: 0,
+      maxPriceSpreadPct: 0,
+    };
+  }
+
+  const clusterMembers = new Map<number, number[]>();
+  const touchedNodes = new Set<number>();
+  for (const e of matchedEdges) {
+    touchedNodes.add(e.i);
+    touchedNodes.add(e.j);
+  }
+  for (const idx of touchedNodes) {
+    const root = find(idx);
+    const list = clusterMembers.get(root) || [];
+    list.push(idx);
+    clusterMembers.set(root, list);
+  }
+
+  const edgesByRoot = new Map<number, MatchedEdge[]>();
+  for (const e of matchedEdges) {
+    const root = find(e.i);
+    const list = edgesByRoot.get(root) || [];
+    list.push(e);
+    edgesByRoot.set(root, list);
+  }
+
+  const groups: SimilarMaterialGroup[] = [];
+  for (const [root, memberIndices] of clusterMembers.entries()) {
+    const groupMaterials = memberIndices
+      .map((idx) => prepared[idx].item)
+      .sort((a, b) => b.totalSpendBrl - a.totalSpendBrl || a.materialCode.localeCompare(b.materialCode));
+    if (groupMaterials.length < 2) continue;
+
+    const groupId = [...groupMaterials]
+      .map((m) => m.materialCode)
+      .sort()
+      .join('|');
+    const edges = edgesByRoot.get(root) || [];
+    const maxSimilarity = Math.max(...edges.map((e) => e.evidence.score), 0);
+    const avgSimilarity =
+      edges.length > 0
+        ? Math.round(edges.reduce((s, e) => s + e.evidence.score, 0) / edges.length)
+        : maxSimilarity;
+
+    const tier: SimilarMatchTier =
+      maxSimilarity >= 85
+        ? 'EXACT_DUPLICATE'
+        : maxSimilarity >= 65
+          ? 'HIGH_SIMILARITY'
+          : 'POSSIBLE_VARIANT';
+
+    const matchReasons = Array.from(
+      new Set(edges.flatMap((e) => e.evidence.reasons))
+    ).slice(0, 5);
+    const specDifferences = Array.from(
+      new Set(edges.flatMap((e) => e.evidence.specDifferences))
+    );
+    const sharedTokens = Array.from(
+      new Set(edges.flatMap((e) => e.sharedTokens))
+    );
+
+    const combinedSpendBrl = groupMaterials.reduce((s, m) => s + m.totalSpendBrl, 0);
+    const combinedOrderedQty = groupMaterials.reduce((s, m) => s + m.totalOrderedQty, 0);
+    const combinedStockPlant0003 = groupMaterials.reduce((s, m) => s + m.totalStockPlant0003, 0);
+
+    const positiveUnitPrices = groupMaterials
+      .map((m) => m.avgUnitPriceBrl)
+      .filter((p) => p > 0);
+    const minUnitPriceBrl = positiveUnitPrices.length > 0 ? Math.min(...positiveUnitPrices) : 0;
+    const maxUnitPriceBrl = positiveUnitPrices.length > 0 ? Math.max(...positiveUnitPrices) : 0;
+    const unitPriceSpreadPct =
+      minUnitPriceBrl > 0
+        ? Math.round(((maxUnitPriceBrl - minUnitPriceBrl) / minUnitPriceBrl) * 1000) / 10
+        : 0;
+
+    const ncms = new Set(groupMaterials.map((m) => m.ncm).filter((nVal) => nVal && nVal !== 'SEM NCM'));
+    const units = new Set(groupMaterials.map((m) => m.unit).filter(Boolean));
+
+    const decision = decisions[groupId];
+    const auditStatus = decision?.status || 'PENDING';
+    const auditNote = decision?.note || '';
+    const primaryMaterialCode =
+      decision?.primaryMaterialCode || groupMaterials[0].materialCode;
+
+    groups.push({
+      groupId,
+      anchorTitle: groupMaterials[0].descPt,
+      tier,
+      maxSimilarity,
+      avgSimilarity,
+      matchReasons,
+      specDifferences,
+      sharedTokens,
+      materials: groupMaterials,
+      pairEvidences: edges.map((e) => e.evidence),
+      combinedSpendBrl,
+      combinedOrderedQty,
+      combinedStockPlant0003,
+      minUnitPriceBrl,
+      maxUnitPriceBrl,
+      unitPriceSpreadPct,
+      sameNcm: ncms.size <= 1 && ncms.size > 0,
+      sameUnit: units.size <= 1,
+      auditStatus,
+      auditNote,
+      primaryMaterialCode,
+    });
+  }
+
+  groups.sort(
+    (a, b) =>
+      b.maxSimilarity - a.maxSimilarity ||
+      b.combinedSpendBrl - a.combinedSpendBrl
+  );
+
+  const uniqueMaterialCodes = new Set(
+    groups.flatMap((g) => g.materials.map((m) => m.materialCode))
+  );
+
+  return {
+    groups,
+    totalGroups: groups.length,
+    totalMaterialsInvolved: uniqueMaterialCodes.size,
+    exactDuplicateGroups: groups.filter((g) => g.tier === 'EXACT_DUPLICATE').length,
+    highSimilarityGroups: groups.filter((g) => g.tier === 'HIGH_SIMILARITY').length,
+    confirmedDuplicateGroups: groups.filter((g) => g.auditStatus === 'CONFIRMED_DUPLICATE').length,
+    pendingGroups: groups.filter((g) => g.auditStatus === 'PENDING').length,
+    totalCombinedSpendBrl: groups.reduce((s, g) => s + g.combinedSpendBrl, 0),
+    maxPriceSpreadPct:
+      groups.length > 0
+        ? Math.max(...groups.map((g) => g.unitPriceSpreadPct))
+        : 0,
+  };
+}
+
+export interface NcmTaxRateProfile {
+  ii: number;
+  ipi: number;
+  pis: number;
+  cofins: number;
+  icms: number;
+}
+
+const NCM_TAX_PROFILES: Array<{ prefix: string; rates: NcmTaxRateProfile }> = [
+  { prefix: '8481', rates: { ii: 12.6, ipi: 5.0, pis: 2.1, cofins: 9.65, icms: 18.0 } },
+  { prefix: '8447', rates: { ii: 12.6, ipi: 0.0, pis: 2.1, cofins: 9.65, icms: 18.0 } },
+  { prefix: '8535', rates: { ii: 12.0, ipi: 5.0, pis: 2.1, cofins: 9.65, icms: 18.0 } },
+  { prefix: '8536', rates: { ii: 14.0, ipi: 5.0, pis: 2.1, cofins: 9.65, icms: 18.0 } },
+  { prefix: '8544', rates: { ii: 14.4, ipi: 5.0, pis: 2.1, cofins: 9.65, icms: 18.0 } },
+  { prefix: '7304', rates: { ii: 12.0, ipi: 5.0, pis: 2.1, cofins: 9.65, icms: 18.0 } },
+  { prefix: '7306', rates: { ii: 12.0, ipi: 5.0, pis: 2.1, cofins: 9.65, icms: 18.0 } },
+  { prefix: '7307', rates: { ii: 14.4, ipi: 5.0, pis: 2.1, cofins: 9.65, icms: 18.0 } },
+  { prefix: '3917', rates: { ii: 14.0, ipi: 5.0, pis: 2.1, cofins: 9.65, icms: 18.0 } },
+  { prefix: '5402', rates: { ii: 16.0, ipi: 0.0, pis: 2.1, cofins: 9.65, icms: 18.0 } },
+];
+
+export function resolveDefaultNcmTaxRates(ncm: string): NcmTaxRateProfile {
+  const digits = (ncm || '').replace(/\D/g, '');
+  const matched = NCM_TAX_PROFILES.find((p) => digits.startsWith(p.prefix));
+  return matched ? { ...matched.rates } : { ii: 12.0, ipi: 5.0, pis: 2.1, cofins: 9.65, icms: 18.0 };
+}
+
+function round2(n: number): number {
+  return Math.round((Number.isFinite(n) ? n : 0) * 100) / 100;
+}
+
+export function calculateBrazilianImportTaxes(params: {
+  valorAduaneiroBrl: number;
+  iiRatePct: number;
+  ipiRatePct: number;
+  pisRatePct: number;
+  cofinsRatePct: number;
+  icmsRatePct: number;
+  siscomexBrl: number;
+  afrmmBrl?: number;
+}): {
+  iiBrl: number;
+  ipiBrl: number;
+  pisBrl: number;
+  cofinsBrl: number;
+  icmsBrl: number;
+  siscomexBrl: number;
+  afrmmBrl: number;
+  totalTaxesBrl: number;
+} {
+  const va = Math.max(0, params.valorAduaneiroBrl);
+  const iiBrl = round2(va * (Math.max(0, params.iiRatePct) / 100));
+  const ipiBrl = round2((va + iiBrl) * (Math.max(0, params.ipiRatePct) / 100));
+  const pisBrl = round2(va * (Math.max(0, params.pisRatePct) / 100));
+  const cofinsBrl = round2(va * (Math.max(0, params.cofinsRatePct) / 100));
+  const siscomexBrl = round2(Math.max(0, params.siscomexBrl));
+  const afrmmBrl = round2(Math.max(0, params.afrmmBrl || 0));
+
+  const icmsDec = Math.min(0.4, Math.max(0, params.icmsRatePct) / 100);
+  const icmsBase =
+    icmsDec > 0 ? (va + iiBrl + ipiBrl + pisBrl + cofinsBrl + siscomexBrl) / (1 - icmsDec) : 0;
+  const icmsBrl = icmsDec > 0 ? round2(icmsBase * icmsDec) : 0;
+
+  return {
+    iiBrl,
+    ipiBrl,
+    pisBrl,
+    cofinsBrl,
+    icmsBrl,
+    siscomexBrl,
+    afrmmBrl,
+    totalTaxesBrl: round2(iiBrl + ipiBrl + pisBrl + cofinsBrl + icmsBrl + siscomexBrl + afrmmBrl),
+  };
+}
+
+export function buildNumerarioAnalysis(
+  items: FupItemRow[],
+  processes: ShipmentProcessRow[],
+  overridesMap: Record<string, NumerarioOverride> = {},
+  includeOpenPos = false
+): NumerarioAnalysisResult {
+  const rows: NumerarioCostLine[] = [];
+  const activeItems = items.filter(
+    (i) => i.LOEKZ !== 'L' && i.STATUS_PRAZO_ENTREGA !== 'ITEM EXCLUIDO'
+  );
+
+  const computeRowFromGroup = (params: {
+    id: string;
+    kind: 'SHIPMENT' | 'OPEN_PO';
+    processRef: string;
+    poList: string;
+    diNum: string;
+    dataDi: string;
+    etaOrDelivery: string;
+    supplier: string;
+    pepProject: string;
+    ncms: string;
+    acNumber: string;
+    modal: string;
+    incoterm: string;
+    currency: string;
+    ptax: number;
+    fobOrig: number;
+    fobBrl: number;
+    freteFiscalBrl: number;
+    seguroFiscalBrl: number;
+    valorAduaneiroBrl: number;
+    armazenagemBrl: number;
+    capataziaBrl: number;
+    brokerFeeBrl: number;
+    liFeeBrl: number;
+    ecotaxBrl: number;
+    freteNacionalBrl: number;
+    demurrageBrl: number;
+    valorAdiantadoBrl: number;
+    numerarioRequestDate: string;
+    groupItems: FupItemRow[];
+  }): NumerarioCostLine => {
+    const ov = overridesMap[params.id];
+    const hasOverride = Boolean(ov && Object.keys(ov).length > 0);
+
+    const sapIi = round2(params.groupItems.reduce((s, i) => s + i.FUP_TOTAL_II_ITEM, 0));
+    const sapIpi = round2(params.groupItems.reduce((s, i) => s + i.FUP_TOTAL_IPI_ITEM, 0));
+    const sapPis = round2(params.groupItems.reduce((s, i) => s + i.FUP_TOTAL_PIS_ITEM, 0));
+    const sapCofins = round2(params.groupItems.reduce((s, i) => s + i.FUP_TOTAL_COFINS_ITEM, 0));
+    const sapIcms = round2(params.groupItems.reduce((s, i) => s + i.FUP_TOTAL_ICMS_ITEM, 0));
+    const sapSiscomex = round2(params.groupItems.reduce((s, i) => s + i.FUP_TOTAL_SISCOMEX_ITEM, 0));
+    const sapAfrmm = round2(Math.max(...params.groupItems.map((i) => i.FUP_AFRMM_PROCESSO), 0));
+
+    const hasCustomRates =
+      ov?.iiRatePct !== undefined ||
+      ov?.ipiRatePct !== undefined ||
+      ov?.pisRatePct !== undefined ||
+      ov?.cofinsRatePct !== undefined ||
+      ov?.icmsRatePct !== undefined ||
+      ov?.siscomexBrl !== undefined;
+
+    const hasRecordedDi =
+      (params.diNum && params.diNum !== '-') ||
+      (params.dataDi && params.dataDi !== '-') ||
+      params.groupItems.some(
+        (i) =>
+          i.FUP_QUANTIDADE_DI > 0 ||
+          i.FUP_VALOR_ADUANEIRO > 0 ||
+          i.detalhesFiscais.length > 0
+      ) ||
+      sapIi + sapIpi + sapPis + sapCofins + sapIcms + sapSiscomex > 0;
+
+    const hasAc = Boolean(params.acNumber && params.acNumber !== '-');
+    const isAwaitingAc =
+      !hasAc &&
+      params.groupItems.some(
+        (i) =>
+          isDrawbackExpectedNcm(i.FUP_NCMS) ||
+          (i.detalhesFiscais[0]?.REGIME_TRIBUTARIO || '').toUpperCase().includes('AGUARDANDO')
+      );
+
+    let taxRegime: NumerarioTaxRegime;
+    if (ov?.regimeOverride === 'DRAWBACK_SUSP') {
+      taxRegime = 'DRAWBACK_SUSP';
+    } else if (ov?.regimeOverride === 'RECOLHIMENTO_INTEGRAL') {
+      taxRegime = 'RECOLHIMENTO_INTEGRAL';
+    } else if (hasAc) {
+      taxRegime = 'DRAWBACK_SUSP';
+    } else if (isAwaitingAc) {
+      taxRegime = 'AGUARDANDO_AC';
+    } else {
+      taxRegime = 'RECOLHIMENTO_INTEGRAL';
+    }
+
+    const vaBase = params.valorAduaneiroBrl > 0 ? params.valorAduaneiroBrl : 0;
+    const calcEffectiveRate = (taxBrl: number, baseBrl: number) =>
+      baseBrl > 0 && taxBrl > 0 ? round2((taxBrl / baseBrl) * 100) : 0;
+
+    let sourceType: NumerarioSourceType;
+    let iiBrl = 0;
+    let ipiBrl = 0;
+    let pisBrl = 0;
+    let cofinsBrl = 0;
+    let icmsBrl = 0;
+    let siscomexBrl = 0;
+    let afrmmBrl = 0;
+    let effIiRate = 0;
+    let effIpiRate = 0;
+    let effPisRate = 0;
+    let effCofinsRate = 0;
+    let effIcmsRate = 0;
+    let potentialDrawbackSavingsBrl = 0;
+
+    if (hasCustomRates) {
+      const simIiRate = ov?.iiRatePct ?? calcEffectiveRate(sapIi, vaBase);
+      const simIpiRate = ov?.ipiRatePct ?? calcEffectiveRate(sapIpi, vaBase + sapIi);
+      const simPisRate = ov?.pisRatePct ?? calcEffectiveRate(sapPis, vaBase);
+      const simCofinsRate = ov?.cofinsRatePct ?? calcEffectiveRate(sapCofins, vaBase);
+      const simIcmsRate =
+        ov?.icmsRatePct ??
+        calcEffectiveRate(
+          sapIcms,
+          vaBase + sapIi + sapIpi + sapPis + sapCofins + sapSiscomex + sapIcms
+        );
+      const simSiscomex = ov?.siscomexBrl ?? sapSiscomex;
+
+      const simCalc = calculateBrazilianImportTaxes({
+        valorAduaneiroBrl: params.valorAduaneiroBrl,
+        iiRatePct: simIiRate,
+        ipiRatePct: simIpiRate,
+        pisRatePct: simPisRate,
+        cofinsRatePct: simCofinsRate,
+        icmsRatePct: simIcmsRate,
+        siscomexBrl: simSiscomex,
+        afrmmBrl: sapAfrmm,
+      });
+
+      if (taxRegime === 'DRAWBACK_SUSP') {
+        sourceType = 'DRAWBACK_SUSPENDED';
+        siscomexBrl = round2(simSiscomex);
+        afrmmBrl = 0;
+        potentialDrawbackSavingsBrl = round2(
+          simCalc.iiBrl + simCalc.ipiBrl + simCalc.pisBrl + simCalc.cofinsBrl + simCalc.icmsBrl
+        );
+      } else {
+        sourceType = 'SIMULATED';
+        iiBrl = simCalc.iiBrl;
+        ipiBrl = simCalc.ipiBrl;
+        pisBrl = simCalc.pisBrl;
+        cofinsBrl = simCalc.cofinsBrl;
+        icmsBrl = simCalc.icmsBrl;
+        siscomexBrl = simCalc.siscomexBrl;
+        afrmmBrl = simCalc.afrmmBrl;
+        effIiRate = round2(simIiRate);
+        effIpiRate = round2(simIpiRate);
+        effPisRate = round2(simPisRate);
+        effCofinsRate = round2(simCofinsRate);
+        effIcmsRate = round2(simIcmsRate);
+        if (taxRegime === 'AGUARDANDO_AC') {
+          potentialDrawbackSavingsBrl = round2(iiBrl + ipiBrl + pisBrl + cofinsBrl + icmsBrl);
+        }
+      }
+    } else if (taxRegime === 'DRAWBACK_SUSP') {
+      sourceType = 'DRAWBACK_SUSPENDED';
+      if (ov?.regimeOverride === 'DRAWBACK_SUSP') {
+        iiBrl = 0;
+        ipiBrl = 0;
+        pisBrl = 0;
+        cofinsBrl = 0;
+        icmsBrl = 0;
+        siscomexBrl = sapSiscomex;
+        afrmmBrl = 0;
+      } else {
+        iiBrl = sapIi;
+        ipiBrl = sapIpi;
+        pisBrl = sapPis;
+        cofinsBrl = sapCofins;
+        icmsBrl = sapIcms;
+        siscomexBrl = sapSiscomex;
+        afrmmBrl = sapAfrmm;
+      }
+      effIiRate = calcEffectiveRate(iiBrl, vaBase);
+      effIpiRate = calcEffectiveRate(ipiBrl, vaBase + iiBrl);
+      effPisRate = calcEffectiveRate(pisBrl, vaBase);
+      effCofinsRate = calcEffectiveRate(cofinsBrl, vaBase);
+      effIcmsRate = calcEffectiveRate(
+        icmsBrl,
+        vaBase + iiBrl + ipiBrl + pisBrl + cofinsBrl + siscomexBrl + icmsBrl
+      );
+    } else {
+      // Strictly follow uploaded SAP / Excel values (never guess taxes when Excel has 0)
+      sourceType = hasRecordedDi ? 'SAP_DI' : 'PRE_DI_SAP';
+      iiBrl = sapIi;
+      ipiBrl = sapIpi;
+      pisBrl = sapPis;
+      cofinsBrl = sapCofins;
+      icmsBrl = sapIcms;
+      siscomexBrl = sapSiscomex;
+      afrmmBrl = sapAfrmm;
+      effIiRate = calcEffectiveRate(iiBrl, vaBase);
+      effIpiRate = calcEffectiveRate(ipiBrl, vaBase + iiBrl);
+      effPisRate = calcEffectiveRate(pisBrl, vaBase);
+      effCofinsRate = calcEffectiveRate(cofinsBrl, vaBase);
+      effIcmsRate = calcEffectiveRate(
+        icmsBrl,
+        vaBase + iiBrl + ipiBrl + pisBrl + cofinsBrl + siscomexBrl + icmsBrl
+      );
+      if (taxRegime === 'AGUARDANDO_AC') {
+        potentialDrawbackSavingsBrl = round2(iiBrl + ipiBrl + pisBrl + cofinsBrl + icmsBrl);
+      }
+    }
+
+    const totalTaxesBrl = round2(
+      iiBrl + ipiBrl + pisBrl + cofinsBrl + icmsBrl + siscomexBrl + afrmmBrl
+    );
+
+    const totalClearanceExpensesBrl = round2(
+      params.armazenagemBrl +
+        params.capataziaBrl +
+        params.brokerFeeBrl +
+        params.liFeeBrl +
+        params.ecotaxBrl +
+        params.freteNacionalBrl +
+        params.demurrageBrl
+    );
+
+    const totalNumerarioBrl = round2(totalTaxesBrl + totalClearanceExpensesBrl);
+    const valorAdiantadoBrl = round2(ov?.valorAdtOverride ?? params.valorAdiantadoBrl);
+    const saldoFinanceiroBrl = round2(totalNumerarioBrl - valorAdiantadoBrl);
+    const numerarioRequestDate = ov?.numerarioDateOverride ?? params.numerarioRequestDate;
+
+    const defaultFinanceStatus: NumerarioFinanceStatus =
+      params.diNum !== '-' &&
+      params.groupItems.some((i) => Boolean(i.DATA_DESEMBARACO)) &&
+      saldoFinanceiroBrl <= 0
+        ? 'PAID'
+        : valorAdiantadoBrl > 0
+          ? 'REQUESTED'
+          : 'DRAFT';
+
+    return {
+      id: params.id,
+      kind: params.kind,
+      processRef: params.processRef,
+      poList: params.poList,
+      diNum: params.diNum,
+      dataDi: params.dataDi,
+      etaOrDelivery: params.etaOrDelivery,
+      supplier: params.supplier,
+      pepProject: params.pepProject,
+      ncms: params.ncms,
+      acNumber: params.acNumber,
+      modal: params.modal,
+      incoterm: params.incoterm,
+      currency: params.currency,
+      ptax: params.ptax,
+      fobOrig: round2(params.fobOrig),
+      fobBrl: round2(params.fobBrl),
+      freteFiscalBrl: round2(params.freteFiscalBrl),
+      seguroFiscalBrl: round2(params.seguroFiscalBrl),
+      valorAduaneiroBrl: round2(params.valorAduaneiroBrl),
+      sourceType,
+      taxRegime,
+      iiBrl,
+      ipiBrl,
+      pisBrl,
+      cofinsBrl,
+      icmsBrl,
+      siscomexBrl,
+      afrmmBrl,
+      totalTaxesBrl,
+      iiRatePct: effIiRate,
+      ipiRatePct: effIpiRate,
+      pisRatePct: effPisRate,
+      cofinsRatePct: effCofinsRate,
+      icmsRatePct: effIcmsRate,
+      armazenagemBrl: round2(params.armazenagemBrl),
+      capataziaBrl: round2(params.capataziaBrl),
+      brokerFeeBrl: round2(params.brokerFeeBrl),
+      liFeeBrl: round2(params.liFeeBrl),
+      ecotaxBrl: round2(params.ecotaxBrl),
+      freteNacionalBrl: round2(params.freteNacionalBrl),
+      demurrageBrl: round2(params.demurrageBrl),
+      totalClearanceExpensesBrl,
+      totalNumerarioBrl,
+      potentialDrawbackSavingsBrl,
+      valorAdiantadoBrl,
+      saldoFinanceiroBrl,
+      numerarioRequestDate,
+      financeStatus: ov?.financeStatus || defaultFinanceStatus,
+      financeNote: ov?.financeNote || '',
+      hasOverride,
+      items: params.groupItems,
+    };
+  };
+
+  // 1. Active Shipment Processes (MFX Refs)
+  for (const proc of processes) {
+    const primary = proc.items[0];
+    const ncms = Array.from(
+      new Set(proc.items.map((i) => i.FUP_NCMS).filter(Boolean))
+    ).join(', ') || 'SEM NCM';
+    const freteFiscal = proc.items.reduce((s, i) => s + i.FUP_TOTAL_FRETE_FISCAL_ITEM, 0);
+    const seguroFiscal = proc.items.reduce((s, i) => s + i.FUP_TOTAL_SEGURO_FISCAL_ITEM, 0);
+    const capatazia = Math.max(...proc.items.map((i) => i.FUP_CAPATAZIA_PROCESSO), 0);
+
+    rows.push(
+      computeRowFromGroup({
+        id: proc.ref,
+        kind: 'SHIPMENT',
+        processRef: proc.ref,
+        poList: proc.poList,
+        diNum: proc.diNum,
+        dataDi: formatDateBr(primary?.DATA_DI),
+        etaOrDelivery: proc.eta !== '-' ? proc.eta : proc.etaFactory,
+        supplier: proc.exporter,
+        pepProject: proc.linha,
+        ncms,
+        acNumber: proc.ac,
+        modal: proc.modal,
+        incoterm: proc.incoterm,
+        currency: proc.currency,
+        ptax: proc.ptax,
+        fobOrig: proc.invoiceValue,
+        fobBrl: proc.brlFob,
+        freteFiscalBrl: freteFiscal,
+        seguroFiscalBrl: seguroFiscal,
+        valorAduaneiroBrl: proc.brlCif,
+        armazenagemBrl: proc.armazenagem,
+        capataziaBrl: capatazia,
+        brokerFeeBrl: proc.brokerFee,
+        liFeeBrl: proc.liFee,
+        ecotaxBrl: proc.ecotax,
+        freteNacionalBrl: proc.trucking,
+        demurrageBrl: proc.demurrageTotal,
+        valorAdiantadoBrl: proc.valorAdt,
+        numerarioRequestDate: proc.numerario,
+        groupItems: proc.items,
+      })
+    );
+  }
+
+  // 2. Optional Unshipped Open POs (for Pre-DI financial forecasting)
+  if (includeOpenPos) {
+    const openPoMap = new Map<string, FupItemRow[]>();
+    for (const item of activeItems) {
+      if (item.ULTIMO_PROCESSO_IMPORTACAO?.trim() || item.QUANTIDADE_PENDENTE <= 0) continue;
+      const list = openPoMap.get(item.PEDIDO) || [];
+      list.push(item);
+      openPoMap.set(item.PEDIDO, list);
+    }
+
+    for (const [po, poItems] of openPoMap.entries()) {
+      const primary = poItems[0];
+      const currency = primary.MOEDA || 'USD';
+      const taxaUsd =
+        poItems.find((i) => i.FUP_TAXA_DOLAR_PROCESSO > 0)?.FUP_TAXA_DOLAR_PROCESSO || 5.65;
+      const taxaEur =
+        poItems.find((i) => i.FUP_TAXA_EURO_PROCESSO > 0)?.FUP_TAXA_EURO_PROCESSO || 6.12;
+      const ptax = currency === 'BRL' ? 1 : currency === 'EUR' ? taxaEur : taxaUsd;
+      const fobOrig = poItems.reduce((s, i) => {
+        const ratio = i.QUANTIDADE_PEDIDA > 0 ? i.QUANTIDADE_PENDENTE / i.QUANTIDADE_PEDIDA : 1;
+        return s + i.VALOR_LIQUIDO * ratio;
+      }, 0);
+      const sapMerc = round2(poItems.reduce((s, i) => s + i.FUP_VALOR_MERCADORIA, 0));
+      const sapVa = round2(poItems.reduce((s, i) => s + i.FUP_VALOR_ADUANEIRO, 0));
+      const sapFrete = round2(poItems.reduce((s, i) => s + i.FUP_TOTAL_FRETE_FISCAL_ITEM, 0));
+      const sapSeguro = round2(poItems.reduce((s, i) => s + i.FUP_TOTAL_SEGURO_FISCAL_ITEM, 0));
+      const fobBrl = sapMerc > 0 ? sapMerc : fobOrig * ptax;
+      const vaFromSap = sapVa > 0 ? sapVa : round2(fobBrl + sapFrete + sapSeguro);
+
+      const acNumber =
+        Array.from(new Set(poItems.map((i) => i.FUP_ATO_CONCESSORIO).filter(Boolean))).join(', ') ||
+        '-';
+      const ncms =
+        Array.from(new Set(poItems.map((i) => i.FUP_NCMS).filter(Boolean))).join(', ') || 'SEM NCM';
+      const pepProject =
+        Array.from(new Set(poItems.map((i) => i.DESCRICAO_ELEMENTO_PEP).filter(Boolean))).join(' / ') ||
+        '-';
+      const modal =
+        primary.FUP_TIPO_EMBARQUE === 'A'
+          ? 'AÉREO'
+          : primary.FUP_TIPO_EMBARQUE === 'M'
+            ? 'MARÍTIMO'
+            : 'RODOVIÁRIO';
+
+      rows.push(
+        computeRowFromGroup({
+          id: `PO-${po}`,
+          kind: 'OPEN_PO',
+          processRef: 'Pre-Shipment PO',
+          poList: po,
+          diNum: '-',
+          dataDi: '-',
+          etaOrDelivery: formatDateBr(primary.DATA_ENTREGA_PREVISTA),
+          supplier: primary.NOME_FORNECEDOR || '-',
+          pepProject,
+          ncms,
+          acNumber,
+          modal,
+          incoterm: primary.FUP_INCOTERM || '-',
+          currency,
+          ptax,
+          fobOrig,
+          fobBrl,
+          freteFiscalBrl: sapFrete,
+          seguroFiscalBrl: sapSeguro,
+          valorAduaneiroBrl: vaFromSap,
+          armazenagemBrl: round2(Math.max(...poItems.map((i) => i.FUP_ARMAZENAGEM_PROCESSO), 0)),
+          capataziaBrl: round2(Math.max(...poItems.map((i) => i.FUP_CAPATAZIA_PROCESSO), 0)),
+          brokerFeeBrl: 0,
+          liFeeBrl: 0,
+          ecotaxBrl: 0,
+          freteNacionalBrl: 0,
+          demurrageBrl: 0,
+          valorAdiantadoBrl: 0,
+          numerarioRequestDate: '-',
+          groupItems: poItems,
+        })
+      );
+    }
+  }
+
+  // Sort: Pending cash calls / Recolhimento Integral / Aguardando AC first, then by total Numerário
+  rows.sort(
+    (a, b) =>
+      (b.saldoFinanceiroBrl > 0 ? 1 : 0) - (a.saldoFinanceiroBrl > 0 ? 1 : 0) ||
+      b.totalNumerarioBrl - a.totalNumerarioBrl ||
+      a.id.localeCompare(b.id)
+  );
+
+  const totals = {
+    valorAduaneiroBrl: round2(rows.reduce((s, r) => s + r.valorAduaneiroBrl, 0)),
+    iiBrl: round2(rows.reduce((s, r) => s + r.iiBrl, 0)),
+    ipiBrl: round2(rows.reduce((s, r) => s + r.ipiBrl, 0)),
+    pisBrl: round2(rows.reduce((s, r) => s + r.pisBrl, 0)),
+    cofinsBrl: round2(rows.reduce((s, r) => s + r.cofinsBrl, 0)),
+    icmsBrl: round2(rows.reduce((s, r) => s + r.icmsBrl, 0)),
+    siscomexBrl: round2(rows.reduce((s, r) => s + r.siscomexBrl, 0)),
+    afrmmBrl: round2(rows.reduce((s, r) => s + r.afrmmBrl, 0)),
+    totalTaxesBrl: round2(rows.reduce((s, r) => s + r.totalTaxesBrl, 0)),
+    totalClearanceExpensesBrl: round2(rows.reduce((s, r) => s + r.totalClearanceExpensesBrl, 0)),
+    totalNumerarioBrl: round2(rows.reduce((s, r) => s + r.totalNumerarioBrl, 0)),
+    valorAdiantadoBrl: round2(rows.reduce((s, r) => s + r.valorAdiantadoBrl, 0)),
+    saldoFinanceiroBrl: round2(rows.reduce((s, r) => s + r.saldoFinanceiroBrl, 0)),
+    drawbackSavedBrl: round2(
+      rows
+        .filter((r) => r.taxRegime === 'DRAWBACK_SUSP')
+        .reduce((s, r) => s + r.potentialDrawbackSavingsBrl, 0)
+    ),
+    drawbackCoveredVaBrl: round2(
+      rows
+        .filter((r) => r.taxRegime === 'DRAWBACK_SUSP')
+        .reduce((s, r) => s + r.valorAduaneiroBrl, 0)
+    ),
+    potentialSavingsIfAcLinkedBrl: round2(
+      rows
+        .filter((r) => r.taxRegime === 'AGUARDANDO_AC')
+        .reduce((s, r) => s + r.potentialDrawbackSavingsBrl, 0)
+    ),
+  };
+
+  const taxBreakdownChart = [
+    { name: 'ICMS', key: 'icmsBrl', valueBrl: totals.icmsBrl, color: '#8b5cf6' },
+    { name: 'II', key: 'iiBrl', valueBrl: totals.iiBrl, color: '#06b6d4' },
+    { name: 'COFINS', key: 'cofinsBrl', valueBrl: totals.cofinsBrl, color: '#3b82f6' },
+    { name: 'IPI', key: 'ipiBrl', valueBrl: totals.ipiBrl, color: '#f59e0b' },
+    { name: 'PIS', key: 'pisBrl', valueBrl: totals.pisBrl, color: '#10b981' },
+    {
+      name: 'Port & Broker',
+      key: 'totalClearanceExpensesBrl',
+      valueBrl: totals.totalClearanceExpensesBrl,
+      color: '#ec4899',
+    },
+    {
+      name: 'Siscomex/AFRMM',
+      key: 'siscomexAfrmm',
+      valueBrl: round2(totals.siscomexBrl + totals.afrmmBrl),
+      color: '#64748b',
+    },
+  ];
+
+  return {
+    rows,
+    totals,
+    counts: {
+      totalRows: rows.length,
+      shipmentRows: rows.filter((r) => r.kind === 'SHIPMENT').length,
+      openPoRows: rows.filter((r) => r.kind === 'OPEN_PO').length,
+      sapDiCount: rows.filter((r) => r.sourceType === 'SAP_DI').length,
+      preDiCount: rows.filter((r) => r.sourceType === 'PRE_DI_SAP').length,
+      simulatedCount: rows.filter((r) => r.sourceType === 'SIMULATED').length,
+      drawbackSuspCount: rows.filter((r) => r.taxRegime === 'DRAWBACK_SUSP').length,
+      pendingCashCallCount: rows.filter((r) => r.saldoFinanceiroBrl > 50).length,
+    },
+    taxBreakdownChart,
+  };
+}
+
+
+
 

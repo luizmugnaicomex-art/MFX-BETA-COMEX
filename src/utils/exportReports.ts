@@ -3,9 +3,12 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import type {
   CashFlowEntry,
+  MaterialProcurementItem,
+  NumerarioAnalysisResult,
   OrderStatusMatrixData,
   PartnerScorecard,
   ShipmentProcessRow,
+  SimilarMaterialGroup,
   SwotData,
 } from '../types/comex';
 import { formatCurrency, formatDateBr } from './sapParser';
@@ -233,3 +236,255 @@ export function downloadSampleFupTemplate(): void {
   XLSX.utils.book_append_sheet(wb, ws, 'comex FUP');
   XLSX.writeFile(wb, 'FUP COMEX.xlsx');
 }
+
+export function exportPqrWorkbook(materials: MaterialProcurementItem[]): void {
+  const rows = materials.map((m) => ({
+    'Material Code': m.materialCode,
+    'Description (PT)': m.descPt,
+    'Description (EN)': m.descEn,
+    NCM: m.ncm,
+    UM: m.unit,
+    'PQR Class': m.pqrClass,
+    'ABC Spend Class': m.abcClass,
+    'PO Count': m.poCount,
+    'Ordered Qty': m.totalOrderedQty,
+    'Received Qty (MIGO)': m.totalReceivedQty,
+    'Plant 0003 Stock': m.totalStockPlant0003,
+    'Pending Qty': m.totalPendingQty,
+    'Avg Unit Cost (BRL)': Math.round(m.avgUnitPriceBrl * 100) / 100,
+    'Total Spend (BRL)': Math.round(m.totalSpendBrl * 100) / 100,
+    'Spend Share (%)': m.spendSharePct,
+    Suppliers: m.suppliers.join(', '),
+    'PO Numbers': m.poNumbers.join(', '),
+    'MFX Processes': m.processRefs.join(', ') || '-',
+  }));
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'PQR Control');
+  XLSX.writeFile(wb, 'MFX_PQR_Control_Report.xlsx');
+}
+
+export function exportKraljicWorkbook(materials: MaterialProcurementItem[]): void {
+  const rows = materials.map((m) => ({
+    'Material Code': m.materialCode,
+    'Description (PT)': m.descPt,
+    NCM: m.ncm,
+    'Kraljic Quadrant': m.kraljicQuadrant,
+    'Computed Quadrant': m.computedQuadrant,
+    'Profit Impact Score (0-100)': m.profitImpactScore,
+    'Supply Risk Score (0-100)': m.supplyRiskScore,
+    'Risk Drivers': m.riskDrivers.join(' | ') || 'Low operational friction',
+    'Total Spend (BRL)': Math.round(m.totalSpendBrl * 100) / 100,
+    'Spend Share (%)': m.spendSharePct,
+    'Avg Unit Cost (BRL)': Math.round(m.avgUnitPriceBrl * 100) / 100,
+    'Ordered Qty': m.totalOrderedQty,
+    'Used / Stock Qty': m.effectiveUsageQty,
+    'Suppliers Count': m.suppliers.length,
+    Suppliers: m.suppliers.join(', '),
+    'Recommended Strategy': m.recommendedStrategy,
+    'Procurement Notes': m.overrideNote || '-',
+  }));
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Kraljic Matrix');
+  XLSX.writeFile(wb, 'MFX_Kraljic_Matrix_Report.xlsx');
+}
+
+export function exportSimilarItemsWorkbook(groups: SimilarMaterialGroup[]): void {
+  const rows = groups.flatMap((g, groupIdx) =>
+    g.materials.map((m) => ({
+      'Cluster #': groupIdx + 1,
+      'Cluster ID': g.groupId,
+      'Similarity (%)': g.maxSimilarity,
+      'Match Tier': g.tier,
+      'Audit Status': g.auditStatus,
+      'Primary Code': g.primaryMaterialCode,
+      'Material Code': m.materialCode,
+      'Description (PT)': m.descPt,
+      'Description (EN)': m.descEn,
+      NCM: m.ncm,
+      Unit: m.unit,
+      'PO Count': m.poCount,
+      'Bought Qty': m.totalOrderedQty,
+      'Used / Stock Qty': m.effectiveUsageQty,
+      'Plant 0003 Stock': m.totalStockPlant0003,
+      'Avg Unit Cost (BRL)': Math.round(m.avgUnitPriceBrl * 100) / 100,
+      'Cluster Price Spread (%)': g.unitPriceSpreadPct,
+      'Total Spend (BRL)': Math.round(m.totalSpendBrl * 100) / 100,
+      Suppliers: m.suppliers.join(', '),
+      'PO Numbers': m.poNumbers.join(', '),
+      'Match Reasons': g.matchReasons.join(' | '),
+      'Spec Differences': g.specDifferences.join(' | ') || '-',
+      'Audit Note': g.auditNote || '-',
+    }))
+  );
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Similar Items Audit');
+  XLSX.writeFile(wb, 'MFX_Similar_Items_Audit.xlsx');
+}
+
+export function exportNumerarioWorkbook(analysis: NumerarioAnalysisResult): void {
+  const rows = analysis.rows.map((r) => ({
+    'Process / Ref': r.id,
+    Type: r.kind === 'SHIPMENT' ? 'MFX Shipment' : 'Open PO Forecast',
+    'PO Numbers': r.poList,
+    'DI #': r.diNum,
+    'Data DI': r.dataDi,
+    Supplier: r.supplier,
+    'Project / PEP': r.pepProject,
+    NCMs: r.ncms,
+    'Ato Concessório': r.acNumber,
+    'Tax Regime': r.taxRegime,
+    'Calculation Basis': r.sourceType,
+    Modal: r.modal,
+    Incoterm: r.incoterm,
+    'FOB Orig': r.fobOrig,
+    Currency: r.currency,
+    PTAX: r.ptax,
+    'Valor Aduaneiro (BRL)': r.valorAduaneiroBrl,
+    'II (BRL)': r.iiBrl,
+    'IPI (BRL)': r.ipiBrl,
+    'PIS (BRL)': r.pisBrl,
+    'COFINS (BRL)': r.cofinsBrl,
+    'ICMS (BRL)': r.icmsBrl,
+    'Siscomex (BRL)': r.siscomexBrl,
+    'AFRMM (BRL)': r.afrmmBrl,
+    'Total Taxes (BRL)': r.totalTaxesBrl,
+    'Armazenagem (BRL)': r.armazenagemBrl,
+    'Capatazia (BRL)': r.capataziaBrl,
+    'Broker Fee (BRL)': r.brokerFeeBrl,
+    'LI Fee (BRL)': r.liFeeBrl,
+    'Frete Nacional (BRL)': r.freteNacionalBrl,
+    'Demurrage (BRL)': r.demurrageBrl,
+    'Total Port & Clearance (BRL)': r.totalClearanceExpensesBrl,
+    'Total Numerário (BRL)': r.totalNumerarioBrl,
+    'Valor Adiantado (BRL)': r.valorAdiantadoBrl,
+    'Saldo Financeiro (BRL)': r.saldoFinanceiroBrl,
+    'Drawback Savings / Exposure (BRL)': r.potentialDrawbackSavingsBrl,
+    'Data Sol. Numerário': r.numerarioRequestDate,
+    'Finance Status': r.financeStatus,
+    'Finance Note': r.financeNote || '-',
+  }));
+
+  rows.push({
+    'Process / Ref': 'TOTAL',
+    Type: 'SUMMARY',
+    'PO Numbers': `${analysis.counts.totalRows} items`,
+    'DI #': '-',
+    'Data DI': '-',
+    Supplier: '-',
+    'Project / PEP': '-',
+    NCMs: '-',
+    'Ato Concessório': '-',
+    'Tax Regime': 'DRAWBACK_SUSP',
+    'Calculation Basis': 'SAP_DI',
+    Modal: '-',
+    Incoterm: '-',
+    'FOB Orig': 0,
+    Currency: 'BRL',
+    PTAX: 0,
+    'Valor Aduaneiro (BRL)': analysis.totals.valorAduaneiroBrl,
+    'II (BRL)': analysis.totals.iiBrl,
+    'IPI (BRL)': analysis.totals.ipiBrl,
+    'PIS (BRL)': analysis.totals.pisBrl,
+    'COFINS (BRL)': analysis.totals.cofinsBrl,
+    'ICMS (BRL)': analysis.totals.icmsBrl,
+    'Siscomex (BRL)': analysis.totals.siscomexBrl,
+    'AFRMM (BRL)': analysis.totals.afrmmBrl,
+    'Total Taxes (BRL)': analysis.totals.totalTaxesBrl,
+    'Armazenagem (BRL)': 0,
+    'Capatazia (BRL)': 0,
+    'Broker Fee (BRL)': 0,
+    'LI Fee (BRL)': 0,
+    'Frete Nacional (BRL)': 0,
+    'Demurrage (BRL)': 0,
+    'Total Port & Clearance (BRL)': analysis.totals.totalClearanceExpensesBrl,
+    'Total Numerário (BRL)': analysis.totals.totalNumerarioBrl,
+    'Valor Adiantado (BRL)': analysis.totals.valorAdiantadoBrl,
+    'Saldo Financeiro (BRL)': analysis.totals.saldoFinanceiroBrl,
+    'Drawback Savings / Exposure (BRL)':
+      analysis.totals.drawbackSavedBrl + analysis.totals.potentialSavingsIfAcLinkedBrl,
+    'Data Sol. Numerário': '-',
+    'Finance Status': 'APPROVED',
+    'Finance Note': '-',
+  });
+
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Numerario Costs');
+  XLSX.writeFile(wb, 'MFX_Numerario_Costs_Finance.xlsx');
+}
+
+export function exportNumerarioPdf(analysis: NumerarioAnalysisResult): void {
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+  doc.setFontSize(14);
+  doc.text('MFX Intelligent Comex — Numerário & Customs Declaration Cost Forecast', 40, 38);
+  doc.setFontSize(9);
+  doc.setTextColor(95);
+  doc.text(
+    `Generated on ${new Date().toLocaleDateString('pt-BR')}  ·  Items: ${analysis.counts.totalRows}  |  Total Expected Numerário: ${formatCurrency(analysis.totals.totalNumerarioBrl, 'BRL')}  |  Saldo a Complementar: ${formatCurrency(analysis.totals.saldoFinanceiroBrl, 'BRL')}`,
+    40,
+    54
+  );
+
+  autoTable(doc, {
+    startY: 70,
+    head: [
+      [
+        'Process / PO',
+        'Regime / Basis',
+        'VA (BRL)',
+        'II',
+        'IPI',
+        'PIS',
+        'COFINS',
+        'ICMS',
+        'Siscomex/AFRMM',
+        'Port/Broker',
+        'Total Numerário',
+        'Adiantado',
+        'Saldo',
+      ],
+    ],
+    body: [
+      ...analysis.rows.map((r) => [
+        `${r.id}\nPO ${r.poList}`,
+        `${r.taxRegime === 'DRAWBACK_SUSP' ? 'DBK Susp.' : r.taxRegime === 'AGUARDANDO_AC' ? 'Aguard. AC' : 'Rec. Int.'}\n(${r.sourceType === 'SAP_DI' ? 'SAP DI' : r.sourceType === 'DRAWBACK_SUSPENDED' ? 'AC SAP' : r.sourceType === 'SIMULATED' ? 'Sim.' : 'Pre-DI'})`,
+        formatCurrency(r.valorAduaneiroBrl, 'BRL'),
+        formatCurrency(r.iiBrl, 'BRL'),
+        formatCurrency(r.ipiBrl, 'BRL'),
+        formatCurrency(r.pisBrl, 'BRL'),
+        formatCurrency(r.cofinsBrl, 'BRL'),
+        formatCurrency(r.icmsBrl, 'BRL'),
+        formatCurrency(r.siscomexBrl + r.afrmmBrl, 'BRL'),
+        formatCurrency(r.totalClearanceExpensesBrl, 'BRL'),
+        formatCurrency(r.totalNumerarioBrl, 'BRL'),
+        formatCurrency(r.valorAdiantadoBrl, 'BRL'),
+        formatCurrency(r.saldoFinanceiroBrl, 'BRL'),
+      ]),
+      [
+        'TOTAL',
+        `${analysis.counts.totalRows} lines`,
+        formatCurrency(analysis.totals.valorAduaneiroBrl, 'BRL'),
+        formatCurrency(analysis.totals.iiBrl, 'BRL'),
+        formatCurrency(analysis.totals.ipiBrl, 'BRL'),
+        formatCurrency(analysis.totals.pisBrl, 'BRL'),
+        formatCurrency(analysis.totals.cofinsBrl, 'BRL'),
+        formatCurrency(analysis.totals.icmsBrl, 'BRL'),
+        formatCurrency(analysis.totals.siscomexBrl + analysis.totals.afrmmBrl, 'BRL'),
+        formatCurrency(analysis.totals.totalClearanceExpensesBrl, 'BRL'),
+        formatCurrency(analysis.totals.totalNumerarioBrl, 'BRL'),
+        formatCurrency(analysis.totals.valorAdiantadoBrl, 'BRL'),
+        formatCurrency(analysis.totals.saldoFinanceiroBrl, 'BRL'),
+      ],
+    ],
+    styles: { fontSize: 7, cellPadding: 3.5 },
+    headStyles: { fillColor: [15, 23, 42], textColor: 255 },
+  });
+
+  doc.save('MFX_Numerario_Costs_Finance.pdf');
+}
+
+
+

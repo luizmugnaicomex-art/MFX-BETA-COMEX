@@ -4,14 +4,18 @@ import {
   Calendar,
   ChevronLeft,
   ChevronRight,
+  CopyCheck,
   Database,
   DollarSign,
   Grid3x3,
+  Layers,
   Moon,
+  Receipt,
   RotateCcw,
   Search,
   Ship,
   Sun,
+  Target,
   Upload,
   Users,
   X,
@@ -20,13 +24,19 @@ import type {
   ComexFilters,
   DateFilterBasis,
   FupItemRow,
+  KraljicOverride,
+  NumerarioOverride,
   ShipmentOverrides,
+  SimilarGroupDecision,
   SwotData,
 } from './types/comex';
 import { INITIAL_MFX_SEED_DATA } from './data/mfxSeedData';
 import { parseFupWorkbook } from './utils/sapParser';
 import {
+  buildMaterialAnalytics,
+  buildNumerarioAnalysis,
   buildShipmentProcesses,
+  detectSimilarMaterials,
   extractAvailableYears,
   filterFupItems,
 } from './utils/comexEngine';
@@ -36,11 +46,19 @@ import { OrderStatusMatrix } from './components/OrderStatusMatrix';
 import { PaymentsCashFlow } from './components/PaymentsCashFlow';
 import { PartnerSwotCenter } from './components/PartnerSwotCenter';
 import { SapFupExplorer } from './components/SapFupExplorer';
+import { PqrControlPanel } from './components/PqrControlPanel';
+import { KraljicMatrixPanel } from './components/KraljicMatrixPanel';
+import { SimilarItemsPanel } from './components/SimilarItemsPanel';
+import { NumerarioCostsPanel } from './components/NumerarioCostsPanel';
 
 type TabId =
   | 'monitoring'
   | 'shipments'
   | 'matrix'
+  | 'pqr'
+  | 'kraljic'
+  | 'similar'
+  | 'numerario'
   | 'payments'
   | 'partners'
   | 'explorer';
@@ -48,6 +66,9 @@ type TabId =
 const LS_OVERRIDES_KEY = 'mfx_comex_shipment_overrides_v1';
 const LS_QTD_AC_KEY = 'mfx_comex_qtd_ac_overrides_v1';
 const LS_SWOT_KEY = 'mfx_comex_custom_swots_v1';
+const LS_KRALJIC_KEY = 'mfx_comex_kraljic_overrides_v1';
+const LS_SIMILAR_KEY = 'mfx_comex_similar_decisions_v1';
+const LS_NUMERARIO_KEY = 'mfx_comex_numerario_overrides_v1';
 const LS_THEME_KEY = 'mfx_comex_theme_v1';
 
 function readStorage<T>(key: string, fallback: T): T {
@@ -113,6 +134,15 @@ export default function App() {
   const [customSwots, setCustomSwots] = useState<Record<string, SwotData>>(() =>
     readStorage(LS_SWOT_KEY, {})
   );
+  const [kraljicOverrides, setKraljicOverrides] = useState<Record<string, KraljicOverride>>(() =>
+    readStorage(LS_KRALJIC_KEY, {})
+  );
+  const [similarDecisions, setSimilarDecisions] = useState<Record<string, SimilarGroupDecision>>(
+    () => readStorage(LS_SIMILAR_KEY, {})
+  );
+  const [numerarioOverrides, setNumerarioOverrides] = useState<Record<string, NumerarioOverride>>(
+    () => readStorage(LS_NUMERARIO_KEY, {})
+  );
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -137,6 +167,18 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(LS_SWOT_KEY, JSON.stringify(customSwots));
   }, [customSwots]);
+
+  useEffect(() => {
+    localStorage.setItem(LS_KRALJIC_KEY, JSON.stringify(kraljicOverrides));
+  }, [kraljicOverrides]);
+
+  useEffect(() => {
+    localStorage.setItem(LS_SIMILAR_KEY, JSON.stringify(similarDecisions));
+  }, [similarDecisions]);
+
+  useEffect(() => {
+    localStorage.setItem(LS_NUMERARIO_KEY, JSON.stringify(numerarioOverrides));
+  }, [numerarioOverrides]);
 
   const filterOptions = useMemo(() => {
     const peps = new Set<string>();
@@ -252,6 +294,69 @@ export default function App() {
     setCustomSwots((prev) => ({ ...prev, [partnerId]: next }));
   };
 
+  const handleSaveKraljicOverride = (
+    materialKey: string,
+    override: KraljicOverride | null
+  ) => {
+    setKraljicOverrides((prev) => {
+      const next = { ...prev };
+      if (!override) {
+        delete next[materialKey];
+      } else {
+        next[materialKey] = override;
+      }
+      return next;
+    });
+  };
+
+  const handleSaveSimilarDecision = (
+    groupId: string,
+    decision: SimilarGroupDecision | null
+  ) => {
+    setSimilarDecisions((prev) => {
+      const next = { ...prev };
+      if (!decision) {
+        delete next[groupId];
+      } else {
+        next[groupId] = decision;
+      }
+      return next;
+    });
+  };
+
+  const handleSaveNumerarioOverride = (
+    id: string,
+    override: NumerarioOverride | null
+  ) => {
+    setNumerarioOverrides((prev) => {
+      const next = { ...prev };
+      if (!override) {
+        delete next[id];
+      } else {
+        next[id] = override;
+      }
+      return next;
+    });
+  };
+
+  const distinctMaterialCount = useMemo(
+    () =>
+      new Set(
+        filteredItems.map((i) => i.MATERIAL || i.DESCRICAO_MATERIAL || i.id)
+      ).size,
+    [filteredItems]
+  );
+
+  const similarGroupCount = useMemo(() => {
+    const matAnalytics = buildMaterialAnalytics(filteredItems, kraljicOverrides);
+    return detectSimilarMaterials(matAnalytics.materials, similarDecisions, 55).totalGroups;
+  }, [filteredItems, kraljicOverrides, similarDecisions]);
+
+  const numerarioPendingCount = useMemo(() => {
+    const res = buildNumerarioAnalysis(filteredItems, processes, numerarioOverrides, true);
+    return res.counts.pendingCashCallCount;
+  }, [filteredItems, processes, numerarioOverrides]);
+
   const navItems: Array<{
     id: TabId;
     label: string;
@@ -278,6 +383,33 @@ export default function App() {
       label: 'Order Status Matrix',
       shortLabel: 'Matrix',
       icon: Grid3x3,
+    },
+    {
+      id: 'pqr',
+      label: 'PQR Control',
+      shortLabel: 'PQR',
+      icon: Layers,
+      badge: distinctMaterialCount,
+    },
+    {
+      id: 'kraljic',
+      label: 'Kraljic Matrix',
+      shortLabel: 'Kraljic',
+      icon: Target,
+    },
+    {
+      id: 'similar',
+      label: 'Similar Items',
+      shortLabel: 'Similar',
+      icon: CopyCheck,
+      badge: similarGroupCount,
+    },
+    {
+      id: 'numerario',
+      label: 'Numerario Costs',
+      shortLabel: 'Numerário',
+      icon: Receipt,
+      badge: numerarioPendingCount,
     },
     {
       id: 'payments',
@@ -680,6 +812,57 @@ export default function App() {
               overrides={shipmentOverrides}
               qtdAcOverrides={qtdAcOverrides}
               onUpdateQtdAc={handleUpdateQtdAc}
+            />
+          )}
+
+          {activeTab === 'pqr' && (
+            <PqrControlPanel
+              items={filteredItems}
+              kraljicOverrides={kraljicOverrides}
+              onSaveKraljicOverride={handleSaveKraljicOverride}
+              onSelectProcess={(ref) => {
+                setSelectedProcessRef(ref);
+                setActiveTab('shipments');
+              }}
+            />
+          )}
+
+          {activeTab === 'kraljic' && (
+            <KraljicMatrixPanel
+              items={filteredItems}
+              kraljicOverrides={kraljicOverrides}
+              onSaveKraljicOverride={handleSaveKraljicOverride}
+              onSelectProcess={(ref) => {
+                setSelectedProcessRef(ref);
+                setActiveTab('shipments');
+              }}
+            />
+          )}
+
+          {activeTab === 'similar' && (
+            <SimilarItemsPanel
+              items={filteredItems}
+              kraljicOverrides={kraljicOverrides}
+              similarDecisions={similarDecisions}
+              onSaveSimilarDecision={handleSaveSimilarDecision}
+              onSaveKraljicOverride={handleSaveKraljicOverride}
+              onSelectProcess={(ref) => {
+                setSelectedProcessRef(ref);
+                setActiveTab('shipments');
+              }}
+            />
+          )}
+
+          {activeTab === 'numerario' && (
+            <NumerarioCostsPanel
+              items={filteredItems}
+              processes={processes}
+              numerarioOverrides={numerarioOverrides}
+              onSaveNumerarioOverride={handleSaveNumerarioOverride}
+              onSelectProcess={(ref) => {
+                setSelectedProcessRef(ref);
+                setActiveTab('shipments');
+              }}
             />
           )}
 

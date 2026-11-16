@@ -160,6 +160,7 @@ export interface FupItemRow {
   FUP_ARMAZENAGEM_PROCESSO: number;
   FUP_AFRMM_PROCESSO: number;
   FUP_CAPATAZIA_PROCESSO: number;
+  hasExplicitSapTaxes?: boolean;
   FUP_DOCUMENTOS_MIRO: string;
   DATA_ULTIMA_MIRO: string;
   FUP_DOCUMENTOS_FI: string;
@@ -419,3 +420,256 @@ export interface ComexFilters {
   dateField: DateFilterBasis;
   hideDeleted: boolean;
 }
+
+export type PqrClass = 'P' | 'Q' | 'R';
+export type AbcClass = 'A' | 'B' | 'C';
+export type KraljicQuadrant = 'STRATEGIC' | 'LEVERAGE' | 'BOTTLENECK' | 'NON_CRITICAL';
+
+export interface KraljicOverride {
+  quadrant?: KraljicQuadrant;
+  note?: string;
+}
+
+export interface MaterialProcurementItem {
+  materialKey: string;
+  materialCode: string;
+  descPt: string;
+  descEn: string;
+  ncm: string;
+  unit: string;
+  poCount: number;
+  lineCount: number;
+  poNumbers: string[];
+  processRefs: string[];
+  suppliers: string[];
+  pepProjects: string[];
+  totalOrderedQty: number;
+  totalReceivedQty: number;
+  totalPendingQty: number;
+  stockFree: number;
+  stockQuality: number;
+  stockBlocked: number;
+  totalStockPlant0003: number;
+  effectiveUsageQty: number;
+  utilizationPct: number;
+  avgUnitPriceBrl: number;
+  maxUnitPriceBrl: number;
+  totalSpendBrl: number;
+  totalSpendOrig: number;
+  currency: string;
+  spendSharePct: number;
+  cumulativeSpendPct: number;
+  demandSharePct: number;
+  cumulativeDemandPct: number;
+  pqrClass: PqrClass;
+  abcClass: AbcClass;
+  profitImpactScore: number;
+  supplyRiskScore: number;
+  riskDrivers: string[];
+  computedQuadrant: KraljicQuadrant;
+  kraljicQuadrant: KraljicQuadrant;
+  overrideNote: string;
+  recommendedStrategy: string;
+  avgDelayDays: number;
+  delayedCount: number;
+  hasMissingAc: boolean;
+  items: FupItemRow[];
+}
+
+export interface MaterialAnalyticsResult {
+  materials: MaterialProcurementItem[];
+  totalSkus: number;
+  totalSpendBrl: number;
+  totalOrderedQty: number;
+  totalReceivedQty: number;
+  totalStockPlant0003: number;
+  mostBought: MaterialProcurementItem | null;
+  mostUsed: MaterialProcurementItem | null;
+  mostExpensive: MaterialProcurementItem | null;
+  highestUnitCost: MaterialProcurementItem | null;
+  pqrCounts: Record<PqrClass, { count: number; spendBrl: number; qty: number }>;
+  abcCounts: Record<AbcClass, { count: number; spendBrl: number }>;
+  quadrantSummary: Record<
+    KraljicQuadrant,
+    { count: number; spendBrl: number; spendPct: number }
+  >;
+}
+
+export type SimilarMatchTier = 'EXACT_DUPLICATE' | 'HIGH_SIMILARITY' | 'POSSIBLE_VARIANT';
+export type SimilarAuditStatus =
+  | 'PENDING'
+  | 'CONFIRMED_DUPLICATE'
+  | 'VALID_VARIANT'
+  | 'DISMISSED';
+
+export interface SimilarGroupDecision {
+  status: SimilarAuditStatus;
+  note?: string;
+  primaryMaterialCode?: string;
+  updatedAt?: string;
+}
+
+export interface SimilarPairEvidence {
+  codeA: string;
+  codeB: string;
+  score: number;
+  reasons: string[];
+  specDifferences: string[];
+}
+
+export interface SimilarMaterialGroup {
+  groupId: string;
+  anchorTitle: string;
+  tier: SimilarMatchTier;
+  maxSimilarity: number;
+  avgSimilarity: number;
+  matchReasons: string[];
+  specDifferences: string[];
+  sharedTokens: string[];
+  materials: MaterialProcurementItem[];
+  pairEvidences: SimilarPairEvidence[];
+  combinedSpendBrl: number;
+  combinedOrderedQty: number;
+  combinedStockPlant0003: number;
+  minUnitPriceBrl: number;
+  maxUnitPriceBrl: number;
+  unitPriceSpreadPct: number;
+  sameNcm: boolean;
+  sameUnit: boolean;
+  auditStatus: SimilarAuditStatus;
+  auditNote: string;
+  primaryMaterialCode: string;
+}
+
+export interface SimilarItemsAnalysisResult {
+  groups: SimilarMaterialGroup[];
+  totalGroups: number;
+  totalMaterialsInvolved: number;
+  exactDuplicateGroups: number;
+  highSimilarityGroups: number;
+  confirmedDuplicateGroups: number;
+  pendingGroups: number;
+  totalCombinedSpendBrl: number;
+  maxPriceSpreadPct: number;
+}
+
+export type NumerarioSourceType =
+  | 'SAP_DI'
+  | 'DRAWBACK_SUSPENDED'
+  | 'PRE_DI_SAP'
+  | 'SIMULATED';
+export type NumerarioTaxRegime = 'RECOLHIMENTO_INTEGRAL' | 'DRAWBACK_SUSP' | 'AGUARDANDO_AC';
+export type NumerarioFinanceStatus = 'DRAFT' | 'REQUESTED' | 'APPROVED' | 'PAID';
+
+export interface NumerarioOverride {
+  regimeOverride?: 'AUTO' | 'RECOLHIMENTO_INTEGRAL' | 'DRAWBACK_SUSP';
+  iiRatePct?: number;
+  ipiRatePct?: number;
+  pisRatePct?: number;
+  cofinsRatePct?: number;
+  icmsRatePct?: number;
+  siscomexBrl?: number;
+  valorAdtOverride?: number;
+  numerarioDateOverride?: string;
+  financeStatus?: NumerarioFinanceStatus;
+  financeNote?: string;
+}
+
+export interface NumerarioCostLine {
+  id: string;
+  kind: 'SHIPMENT' | 'OPEN_PO';
+  processRef: string;
+  poList: string;
+  diNum: string;
+  dataDi: string;
+  etaOrDelivery: string;
+  supplier: string;
+  pepProject: string;
+  ncms: string;
+  acNumber: string;
+  modal: string;
+  incoterm: string;
+  currency: string;
+  ptax: number;
+  fobOrig: number;
+  fobBrl: number;
+  freteFiscalBrl: number;
+  seguroFiscalBrl: number;
+  valorAduaneiroBrl: number;
+  sourceType: NumerarioSourceType;
+  taxRegime: NumerarioTaxRegime;
+  // Customs taxes (BRL)
+  iiBrl: number;
+  ipiBrl: number;
+  pisBrl: number;
+  cofinsBrl: number;
+  icmsBrl: number;
+  siscomexBrl: number;
+  afrmmBrl: number;
+  totalTaxesBrl: number;
+  // Effective rates (%)
+  iiRatePct: number;
+  ipiRatePct: number;
+  pisRatePct: number;
+  cofinsRatePct: number;
+  icmsRatePct: number;
+  // Port & clearance expenses (BRL)
+  armazenagemBrl: number;
+  capataziaBrl: number;
+  brokerFeeBrl: number;
+  liFeeBrl: number;
+  ecotaxBrl: number;
+  freteNacionalBrl: number;
+  demurrageBrl: number;
+  totalClearanceExpensesBrl: number;
+  // Totals & Finance cash-call
+  totalNumerarioBrl: number;
+  potentialDrawbackSavingsBrl: number;
+  valorAdiantadoBrl: number;
+  saldoFinanceiroBrl: number;
+  numerarioRequestDate: string;
+  financeStatus: NumerarioFinanceStatus;
+  financeNote: string;
+  hasOverride: boolean;
+  items: FupItemRow[];
+}
+
+export interface NumerarioAnalysisResult {
+  rows: NumerarioCostLine[];
+  totals: {
+    valorAduaneiroBrl: number;
+    iiBrl: number;
+    ipiBrl: number;
+    pisBrl: number;
+    cofinsBrl: number;
+    icmsBrl: number;
+    siscomexBrl: number;
+    afrmmBrl: number;
+    totalTaxesBrl: number;
+    totalClearanceExpensesBrl: number;
+    totalNumerarioBrl: number;
+    valorAdiantadoBrl: number;
+    saldoFinanceiroBrl: number;
+    drawbackSavedBrl: number;
+    drawbackCoveredVaBrl: number;
+    potentialSavingsIfAcLinkedBrl: number;
+  };
+  counts: {
+    totalRows: number;
+    shipmentRows: number;
+    openPoRows: number;
+    sapDiCount: number;
+    preDiCount: number;
+    simulatedCount: number;
+    drawbackSuspCount: number;
+    pendingCashCallCount: number;
+  };
+  taxBreakdownChart: Array<{
+    name: string;
+    key: string;
+    valueBrl: number;
+    color: string;
+  }>;
+}
+
+
