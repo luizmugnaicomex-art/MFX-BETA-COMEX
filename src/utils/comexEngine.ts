@@ -23,6 +23,7 @@ import type {
   OrderStatusMatrixData,
   PartnerScorecard,
   PqrClass,
+  ProcessDetailJson,
   ShipmentAirEvaluation,
   ShipmentCostBenefitRow,
   ShipmentItemTroubleSummary,
@@ -441,6 +442,32 @@ function inferShipmentStatus(items: FupItemRow[]): ShipmentOperationalStatus {
   return 'AG. PRONTIDAO DA CARGA';
 }
 
+export function extractNfDocnumFromProcess(proc?: ProcessDetailJson): string {
+  if (!proc) return '';
+  for (const raw of [proc.DOCNUM, proc.NFENUM]) {
+    if (raw === undefined || raw === null) continue;
+    const s = String(raw).trim();
+    if (!s || s === '-' || /^0+$/.test(s)) continue;
+    return s;
+  }
+  return '';
+}
+
+export function findProcessJsonForRef(
+  processos: ProcessDetailJson[] | undefined,
+  procRef: string
+): ProcessDetailJson {
+  if (!Array.isArray(processos) || processos.length === 0) return {};
+  const target = (procRef || '').trim();
+  if (target) {
+    const matched = processos.find(
+      (p) => String(p?.NUM_PROCESSO || '').trim() === target
+    );
+    if (matched) return matched;
+  }
+  return processos[0] || {};
+}
+
 export function buildShipmentProcesses(
   items: FupItemRow[],
   overridesMap: Record<string, ShipmentOverrides>
@@ -459,7 +486,7 @@ export function buildShipmentProcesses(
 
   for (const [ref, groupItems] of grouped.entries()) {
     const primary = groupItems[0];
-    const procJson = primary.processos[0] || {};
+    const procJson = findProcessJsonForRef(primary.processos, ref);
     const ov = overridesMap[ref] || {};
 
     const poList = Array.from(new Set(groupItems.map((i) => i.PEDIDO).filter(Boolean))).join(', ');
@@ -605,8 +632,13 @@ export function buildShipmentProcesses(
       desCi: formatDateBr(primary.DATA_DESEMBARACO),
       espelho: ov.espelho || (primary.NUM_DI ? 'EMITIDO' : '-'),
       minuta: ov.minuta || (primary.NUM_DI ? 'APROVADA' : '-'),
-      nfStatus: ov.nfStatus || (procJson.NFENUM ? 'EMITIDA' : '-'),
-      nfNum: procJson.NFENUM || '-',
+      ...(() => {
+        const nfDoc = extractNfDocnumFromProcess(procJson);
+        return {
+          nfStatus: ov.nfStatus || (nfDoc ? 'EMITIDA' : '-'),
+          nfNum: nfDoc || '-',
+        };
+      })(),
       transportadora: procJson.TRANSP_DI || '-',
       freteNac: trucking,
       recebimento: formatDateBr(recebimento),
@@ -641,47 +673,201 @@ export function buildShipmentProcesses(
 
 export function buildOrderStatusMatrix(
   items: FupItemRow[],
-  overridesMap: Record<string, ShipmentOverrides>
+  overridesMap: Record<string, ShipmentOverrides>,
+  separateByEtaDate = false
 ): OrderStatusMatrixData {
-  const colMap = new Map<string, MatrixColumnMeta>();
+  // Pre-collect process-level POs, BL/AWB, NF (DOCNUM from col AQ PROCESSOS_JSON), ETD, and ETA for cargo already at BL
+  const procMetaMap = new Map<
+    string,
+    {
+      poSet: Set<string>;
+      blSet: Set<string>;
+      nfSet: Set<string>;
+      etdIso: string;
+      etaIso: string;
+    }
+  >();
+
+  const ensureProcMeta = (ref: string) => {
+    let meta = procMetaMap.get(ref);
+    if (!meta) {
+      meta = {
+        poSet: new Set(),
+        blSet: new Set(),
+        nfSet: new Set(),
+        etdIso: '',
+        etaIso: '',
+      };
+      procMetaMap.set(ref, meta);
+    }
+    return meta;
+  };
 
   for (const item of items) {
+    if (Array.isArray(item.processos)) {
+      for (const p of item.processos) {
+        const pRef = String(p?.NUM_PROCESSO || '').trim();
+        if (!pRef) continue;
+        const pMeta = ensureProcMeta(pRef);
+        if (item.PEDIDO) pMeta.poSet.add(item.PEDIDO);
+        const pBl = (
+          p.CONHECIMENTO_EMBARQUE ||
+          p.NUM_CONHECIMENTO ||
+          p.NUM_BL ||
+          p.BL_AWB ||
+          p.NUM_MASTER ||
+          ''
+        ).trim();
+        if (pBl) pMeta.blSet.add(pBl);
+        const pNf = extractNfDocnumFromProcess(p);
+        if (pNf) pMeta.nfSet.add(pNf);
+      }
+    }
+
+    const procRef = item.ULTIMO_PROCESSO_IMPORTACAO;
+    if (!procRef) continue;
+    const meta = ensureProcMeta(procRef);
+    if (item.PEDIDO) meta.poSet.add(item.PEDIDO);
+    const procJson = findProcessJsonForRef(item.processos, procRef);
+    const blVal = (
+      item.CONHECIMENTO_EMBARQUE ||
+      procJson.CONHECIMENTO_EMBARQUE ||
+      procJson.NUM_CONHECIMENTO ||
+      procJson.NUM_BL ||
+      procJson.BL_AWB ||
+      procJson.NUM_MASTER ||
+      ''
+    ).trim();
+    if (blVal) meta.blSet.add(blVal);
+    const nfVal = extractNfDocnumFromProcess(procJson);
+    if (nfVal) meta.nfSet.add(nfVal);
+    const etdCandidate = item.ETD || item.DATA_PROGRAMACAO_FORNECIMENTO || '';
+    const etaCandidate = item.ETA || item.DATA_ENTREGA_PREVISTA || '';
+    if (!meta.etdIso && etdCandidate) meta.etdIso = etdCandidate;
+    if (!meta.etaIso && etaCandidate) meta.etaIso = etaCandidate;
+  }
+
+  const colMap = new Map<
+    string,
+    MatrixColumnMeta & {
+      _poSet: Set<string>;
+      _blSet: Set<string>;
+      _nfSet: Set<string>;
+    }
+  >();
+
+  const getItemColKey = (item: FupItemRow): {
+    key: string;
+    isBl: boolean;
+    number: string;
+    etdIso: string;
+    etaIso: string;
+    itemBl: string;
+    itemNf: string;
+  } => {
     const isBl = Boolean(item.ULTIMO_PROCESSO_IMPORTACAO);
-    const key = isBl ? `BL:${item.ULTIMO_PROCESSO_IMPORTACAO}` : `PO:${item.PEDIDO}`;
     const number = isBl ? item.ULTIMO_PROCESSO_IMPORTACAO : item.PEDIDO;
+    const procMeta = isBl ? procMetaMap.get(number) : undefined;
+    const etdIso =
+      (isBl
+        ? item.ETD || procMeta?.etdIso || item.DATA_PROGRAMACAO_FORNECIMENTO
+        : item.ETD || item.DATA_PROGRAMACAO_FORNECIMENTO) || '';
+    const etaIso =
+      (isBl
+        ? item.ETA || procMeta?.etaIso || item.DATA_ENTREGA_PREVISTA
+        : item.ETA || item.DATA_ENTREGA_PREVISTA) || '';
+    const procJson = isBl
+      ? findProcessJsonForRef(item.processos, number)
+      : item.processos?.[0] || {};
+    const itemBl = (
+      item.CONHECIMENTO_EMBARQUE ||
+      procJson.CONHECIMENTO_EMBARQUE ||
+      procJson.NUM_CONHECIMENTO ||
+      procJson.NUM_BL ||
+      procJson.BL_AWB ||
+      procJson.NUM_MASTER ||
+      ''
+    ).trim();
+    const itemNf = isBl ? extractNfDocnumFromProcess(procJson) : '';
+    const baseKey = isBl ? `BL:${number}` : `PO:${number}`;
+    const key = separateByEtaDate ? `${baseKey}@${etaIso || 'NO_ETA'}` : baseKey;
+    return { key, isBl, number, etdIso, etaIso, itemBl, itemNf };
+  };
+
+  for (const item of items) {
+    const { key, isBl, number, etdIso, etaIso, itemBl, itemNf } = getItemColKey(item);
     if (!number) continue;
 
     const existing = colMap.get(key);
     const ov = isBl ? overridesMap[number] : overridesMap[item.PEDIDO];
     const paymentStr = ov?.paymentDate || formatDateBr(item.DATA_ULTIMA_MIRO);
-    const etdStr = formatDateBr(item.ETD || item.DATA_PROGRAMACAO_FORNECIMENTO);
-    const etaStr = formatDateBr(item.ETA || item.DATA_ENTREGA_PREVISTA);
+    const etdStr = formatDateBr(etdIso);
+    const etaStr = formatDateBr(etaIso);
+    const procMeta = isBl ? procMetaMap.get(number) : undefined;
 
     if (!existing) {
+      const poSet = new Set<string>(procMeta ? Array.from(procMeta.poSet) : []);
+      if (item.PEDIDO) poSet.add(item.PEDIDO);
+      const blSet = new Set<string>(procMeta ? Array.from(procMeta.blSet) : []);
+      if (itemBl) blSet.add(itemBl);
+      const nfSet = new Set<string>(procMeta ? Array.from(procMeta.nfSet) : []);
+      if (itemNf) nfSet.add(itemNf);
+
       colMap.set(key, {
         key,
         kind: isBl ? 'BL' : 'PO',
         number,
+        poNumbers: Array.from(poSet).join(', ') || '-',
+        blAwb: Array.from(blSet).join(', ') || '-',
+        nfDocnum: Array.from(nfSet).join(', ') || '-',
         supplier: item.NOME_FORNECEDOR || '-',
         payment: paymentStr,
         advValue: item.VALOR_LIQUIDO,
         currency: item.MOEDA || 'USD',
         etd: etdStr,
         eta: etaStr,
+        etaIso,
+        _poSet: poSet,
+        _blSet: blSet,
+        _nfSet: nfSet,
       });
     } else {
       existing.advValue += item.VALOR_LIQUIDO;
+      if (item.PEDIDO) {
+        existing._poSet.add(item.PEDIDO);
+        existing.poNumbers = Array.from(existing._poSet).join(', ') || '-';
+      }
+      if (itemBl) {
+        existing._blSet.add(itemBl);
+        existing.blAwb = Array.from(existing._blSet).join(', ') || '-';
+      }
+      if (itemNf) {
+        existing._nfSet.add(itemNf);
+        existing.nfDocnum = Array.from(existing._nfSet).join(', ') || '-';
+      }
       if (existing.payment === '-' && paymentStr !== '-') existing.payment = paymentStr;
       if (existing.etd === '-' && etdStr !== '-') existing.etd = etdStr;
-      if (existing.eta === '-' && etaStr !== '-') existing.eta = etaStr;
+      if (existing.eta === '-' && etaStr !== '-') {
+        existing.eta = etaStr;
+        existing.etaIso = etaIso;
+      }
     }
   }
 
-  // Sort POs first, then BLs
-  const columns = Array.from(colMap.values()).sort((a, b) => {
-    if (a.kind !== b.kind) return a.kind === 'PO' ? -1 : 1;
-    return a.number.localeCompare(b.number);
-  });
+  const columns: MatrixColumnMeta[] = Array.from(colMap.values())
+    .map(({ _poSet, _blSet, _nfSet, ...col }) => col)
+    .sort((a, b) => {
+      if (separateByEtaDate) {
+        const etaA = a.etaIso || '9999-99-99';
+        const etaB = b.etaIso || '9999-99-99';
+        if (etaA !== etaB) return etaA.localeCompare(etaB);
+        if (a.kind !== b.kind) return a.kind === 'PO' ? -1 : 1;
+        return a.number.localeCompare(b.number);
+      }
+      // Default: Sort POs first, then BLs, by number
+      if (a.kind !== b.kind) return a.kind === 'PO' ? -1 : 1;
+      return a.number.localeCompare(b.number);
+    });
 
   // Group by Project PEP -> Material
   const sectionMap = new Map<
@@ -729,8 +915,7 @@ export function buildOrderStatusMatrix(
       section.materialsMap.set(matKey, matRow);
     }
 
-    const isBl = Boolean(item.ULTIMO_PROCESSO_IMPORTACAO);
-    const colKey = isBl ? `BL:${item.ULTIMO_PROCESSO_IMPORTACAO}` : `PO:${item.PEDIDO}`;
+    const { key: colKey, isBl } = getItemColKey(item);
     const qtyForCol = isBl
       ? item.FUP_QUANTIDADE_DI > 0
         ? item.FUP_QUANTIDADE_DI

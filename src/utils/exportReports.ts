@@ -83,9 +83,8 @@ export function buildOrderStatusMatrixAoa(
   qtdAcOverrides: Record<string, number>
 ): (string | number)[][] {
   const aoa: (string | number)[][] = [];
-  const colCount = 8 + matrix.columns.length + 1;
 
-  // Top 6 metadata header rows (Cols A-G blank, Col H labels, Cols I+ dynamic PO/BL, final col blank/QTD AC)
+  // Top 8 metadata header rows (Cols A-G blank, Col H labels, Cols I+ dynamic PO/BL, final col blank/QTD AC)
   const makeMetaRow = (label: string, getter: (c: typeof matrix.columns[0]) => string | number, lastCol = '') => [
     '', '', '', '', '', '', '', label,
     ...matrix.columns.map(getter),
@@ -93,13 +92,16 @@ export function buildOrderStatusMatrixAoa(
   ];
 
   aoa.push(makeMetaRow('N#', (c) => `${c.kind}: ${c.number}`));
+  aoa.push(makeMetaRow('PO #', (c) => c.poNumbers));
+  aoa.push(makeMetaRow('BL / AWB', (c) => c.blAwb));
+  aoa.push(makeMetaRow('NF (DOCNUM)', (c) => c.nfDocnum));
   aoa.push(makeMetaRow('Supplier', (c) => c.supplier));
   aoa.push(makeMetaRow('Payment', (c) => c.payment));
   aoa.push(makeMetaRow('Adv Value', (c) => `${c.currency} ${c.advValue.toFixed(2)}`));
   aoa.push(makeMetaRow('ETD', (c) => c.etd));
   aoa.push(makeMetaRow('ETA', (c) => c.eta));
 
-  // Table header row (Row 7)
+  // Table header row (Row 9)
   aoa.push([
     'COD. MATERIAL',
     'DESCRIÇÃO MATERIAL - PT',
@@ -114,10 +116,6 @@ export function buildOrderStatusMatrixAoa(
   ]);
 
   for (const section of matrix.sections) {
-    const sectionRow: (string | number)[] = Array(colCount).fill('');
-    sectionRow[0] = `PROJETO: ${section.label}`;
-    aoa.push(sectionRow);
-
     for (const mat of section.materials) {
       const qtdAc = qtdAcOverrides[mat.rowKey] ?? mat.qtdAcDefault;
       aoa.push([

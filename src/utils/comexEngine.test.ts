@@ -758,25 +758,117 @@ test('buildShipmentWorthinessAnalysis evaluates order cost ratios, Air vs Sea RO
   assert.ok(crossWorth.materialTroubles[0].troubleSignals.some((s) => s.includes('Repeat delays')));
 });
 
-test('buildOrderStatusMatrixAoa places PEP column directly after Estoque and keeps metadata aligned over TIPO', () => {
+test('buildOrderStatusMatrixAoa places PEP column directly after Estoque without duplicate PROJETO rows and includes PO #, BL / AWB, and NF (DOCNUM) metadata rows', () => {
   const active = filterFupItems(INITIAL_MFX_SEED_DATA, BASE_FILTERS);
   const matrix = buildOrderStatusMatrix(active, {});
   const aoa = buildOrderStatusMatrixAoa(matrix, {});
 
-  // Top 6 metadata rows: Cols A-G blank, Col H (index 7) has label
+  // Top 9 metadata rows: Cols A-G blank, Col H (index 7) has label
   assert.equal(aoa[0][7], 'N#');
-  assert.equal(aoa[1][7], 'Supplier');
-  assert.equal(aoa[5][7], 'ETA');
+  assert.equal(aoa[1][7], 'PO #');
+  assert.equal(aoa[2][7], 'BL / AWB');
+  assert.equal(aoa[3][7], 'NF (DOCNUM)');
+  assert.equal(aoa[4][7], 'Supplier');
+  assert.equal(aoa[8][7], 'ETA');
 
-  // Row 7 header: Estoque at index 5 (F), PEP at index 6 (G), TIPO at index 7 (H)
-  const headerRow = aoa[6];
+  // Row 10 header: Estoque at index 5 (F), PEP at index 6 (G), TIPO at index 7 (H)
+  const headerRow = aoa[9];
   assert.equal(headerRow[5], 'Estoque');
   assert.equal(headerRow[6], 'PEP');
   assert.equal(headerRow[7], 'TIPO');
 
-  // First section header row & first material row
-  assert.ok(String(aoa[7][0]).startsWith('PROJETO:'));
-  const firstMaterialRow = aoa[8];
+  // First material row is directly at aoa[10] (no duplicate PROJETO separator rows)
+  const firstMaterialRow = aoa[10];
+  assert.ok(!String(firstMaterialRow[0]).startsWith('PROJETO:'));
   assert.ok(String(firstMaterialRow[6]).length > 0);
 });
+
+test('buildOrderStatusMatrix populates poNumbers, blAwb, and nfDocnum (from Col AQ PROCESSOS_JSON) for BL columns and separates/orders columns by ETA date when separateByEtaDate is true', () => {
+  const active = filterFupItems(INITIAL_MFX_SEED_DATA, BASE_FILTERS);
+  const defaultMatrix = buildOrderStatusMatrix(active, {}, false);
+  const blCols = defaultMatrix.columns.filter((c) => c.kind === 'BL');
+  assert.ok(blCols.length > 0);
+  for (const col of blCols) {
+    assert.ok(col.poNumbers.length > 0 && col.poNumbers !== '-');
+    assert.ok(col.blAwb.length > 0 && col.blAwb !== '-');
+  }
+  const mfx02Col = blCols.find((c) => c.number === 'MFX-00002/25');
+  assert.equal(mfx02Col?.nfDocnum, '0000048192');
+  const mfx03Col = blCols.find((c) => c.number === 'MFX-00003/25');
+  assert.equal(mfx03Col?.nfDocnum, '-'); // DOCNUM '0000000000' in PROCESSOS_JSON is treated as not issued
+
+  // Test separateByEtaDate = true sorts chronologically and splits multi-ETA POs + extracts DOCNUM from Col AQ PROCESSOS_JSON
+  const itemEarly = normalizeFupRow(
+    {
+      PEDIDO: '4500999001',
+      ITEM_PEDIDO: '10',
+      MATERIAL: '10099901',
+      DESCRICAO_MATERIAL: 'CABO TESTE A',
+      QUANTIDADE_PEDIDA: 100,
+      QUANTIDADE_ENTREGUE: 0,
+      DATA_ENTREGA_PREVISTA: '2026-10-15',
+    },
+    0
+  );
+  const itemLateSamePo = normalizeFupRow(
+    {
+      PEDIDO: '4500999001',
+      ITEM_PEDIDO: '20',
+      MATERIAL: '10099902',
+      DESCRICAO_MATERIAL: 'CABO TESTE B',
+      QUANTIDADE_PEDIDA: 50,
+      QUANTIDADE_ENTREGUE: 0,
+      DATA_ENTREGA_PREVISTA: '2026-12-20',
+    },
+    1
+  );
+  const itemMidBl = normalizeFupRow(
+    {
+      PEDIDO: '4500999002',
+      ITEM_PEDIDO: '10',
+      MATERIAL: '10099901',
+      DESCRICAO_MATERIAL: 'CABO TESTE A',
+      ULTIMO_PROCESSO_IMPORTACAO: 'MFX-00043/26',
+      CONHECIMENTO_EMBARQUE: '05758486993',
+      QUANTIDADE_PEDIDA: 80,
+      QUANTIDADE_ENTREGUE: 80,
+      FUP_QUANTIDADE_PROCESSO: 80,
+      ETD: '2026-10-20',
+      ETA: '2026-11-05',
+      PROCESSOS_JSON: JSON.stringify([
+        {
+          MANDT: '400',
+          NUM_PROCESSO: 'MFX-00043/26',
+          CONHECIMENTO_EMBARQUE: '05758486993',
+          NUM_DI: '26/0246304-2',
+          DT_DI: '20260210',
+          DOCNUM: '0000039644',
+          NFENUM: '',
+          SERIES: '005',
+          NF_CRIADO_POR: 'OALONSO',
+          NF_DATA_CRIACAO: '20260213',
+        },
+      ]),
+    },
+    2
+  );
+
+  const byPoMatrix = buildOrderStatusMatrix([itemEarly, itemLateSamePo, itemMidBl], {}, false);
+  // When not separated by ETA, PO 4500999001 is 1 column + MFX-00043/26 is 1 column = 2 columns
+  assert.equal(byPoMatrix.columns.length, 2);
+
+  const byEtaMatrix = buildOrderStatusMatrix([itemEarly, itemLateSamePo, itemMidBl], {}, true);
+  // When separated by ETA date, PO 4500999001 splits into 2 ETA columns + MFX-00043/26 = 3 columns sorted chronologically
+  assert.equal(byEtaMatrix.columns.length, 3);
+  assert.deepEqual(
+    byEtaMatrix.columns.map((c) => c.etaIso),
+    ['2026-10-15', '2026-11-05', '2026-12-20']
+  );
+  assert.equal(byEtaMatrix.columns[1].kind, 'BL');
+  assert.equal(byEtaMatrix.columns[1].poNumbers, '4500999002');
+  assert.equal(byEtaMatrix.columns[1].blAwb, '05758486993');
+  assert.equal(byEtaMatrix.columns[1].nfDocnum, '0000039644');
+});
+
+
 

@@ -370,7 +370,22 @@ export function normalizeFupRow(raw: Record<string, unknown>, index: number): Fu
     DATA_DI: parseExcelDate(pick(raw, 'DATA_DI')),
     FUP_CANAL_PARAMETRIZACAO: normalizeChannel(pick(raw, 'FUP_CANAL_PARAMETRIZACAO')),
     FUP_QUANTIDADE_DI: parseNumber(pick(raw, 'FUP_QUANTIDADE_DI')),
-    CONHECIMENTO_EMBARQUE: String(pick(raw, 'CONHECIMENTO_EMBARQUE') || '').trim(),
+    CONHECIMENTO_EMBARQUE: String(
+      pick(
+        raw,
+        'CONHECIMENTO_EMBARQUE',
+        'FUP_CONHECIMENTO_EMBARQUE',
+        'FUP_CONHECIMENTO_ULTIMO_PROCESSO',
+        'NUM_CONHECIMENTO',
+        'BL_AWB'
+      ) ||
+        firstProc.CONHECIMENTO_EMBARQUE ||
+        firstProc.NUM_CONHECIMENTO ||
+        firstProc.NUM_BL ||
+        firstProc.BL_AWB ||
+        firstProc.NUM_MASTER ||
+        ''
+    ).trim(),
     FUP_INCOTERM: String(pick(raw, 'FUP_INCOTERM', 'INCO1') || '').trim().toUpperCase(),
     FUP_TIPO_EMBARQUE: normalizeModal(pick(raw, 'FUP_TIPO_EMBARQUE')),
     ETD: parseExcelDate(pick(raw, 'ETD', 'FUP_ETD_ULTIMO_PROCESSO')),

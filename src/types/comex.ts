@@ -25,6 +25,12 @@ export interface ProcessDetailJson {
   TRANSIT_TIME_ATUALIZADO?: number;
   LEAD_TIME_ENTREGA?: number;
   NFENUM?: string;
+  DOCNUM?: string;
+  SERIES?: string;
+  NF_CRIADO_POR?: string;
+  NF_DATA_CRIACAO?: string;
+  NF_HORA_CRIACAO?: string;
+  DATA_NF_ENTRADA?: string;
   TRANSP_DI?: string;
   DATA_SOL_NUMERARIO?: string;
   VALOR_ADT?: number;
@@ -48,6 +54,10 @@ export interface ProcessDetailJson {
   PI_NUMBER?: string;
   DT_NF?: string;
   DATA_NF?: string;
+  CONHECIMENTO_EMBARQUE?: string;
+  NUM_CONHECIMENTO?: string;
+  NUM_BL?: string;
+  BL_AWB?: string;
 }
 
 export interface FiscalDetailJson {
@@ -325,12 +335,16 @@ export interface MatrixColumnMeta {
   key: string;
   kind: 'PO' | 'BL';
   number: string;
+  poNumbers: string;
+  blAwb: string;
+  nfDocnum: string;
   supplier: string;
   payment: string;
   advValue: number;
   currency: string;
   etd: string;
   eta: string;
+  etaIso: string;
 }
 
 export interface MatrixMaterialRow {
